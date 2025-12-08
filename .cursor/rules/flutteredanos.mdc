@@ -1,0 +1,26 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+We work with flutter and firebase! 
+- We use firebase_ai for gemini
+- cloud_firestore for the databse
+- firebase_auth for the user management
+
+The correct set up for gemini is:
+FirebaseAI.vertexAI(location: 'global').generativeModel(
+      model: 'gemini-2.5-flash',
+      generationConfig: GenerationConfig(
+        responseMIMEType: "application/json",
+        responseSchema: ...,
+      ),
+
+
+FirestoreService (lib/services/firestore_service.dart)
+Collection Structure:
+
+users/{userId}/
+├── meals/{mealId}        - Individual scanned meals
+├── quickAdd/{itemId}     - Favorite meals for quick re-adding
+└── goals                 - User nutritional goals (embedded in user doc)
