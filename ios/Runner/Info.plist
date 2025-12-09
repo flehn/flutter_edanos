@@ -53,5 +53,11 @@
 	<!-- Microphone Permission for Voice Recording -->
 	<key>NSMicrophoneUsageDescription</key>
 	<string>EdanosAI uses the microphone to record food descriptions for AI-powered nutritional analysis.</string>
+	<!-- Camera Permission for Food Photos -->
+	<key>NSCameraUsageDescription</key>
+	<string>EdanosAI uses the camera to take photos of food for AI-powered nutritional analysis.</string>
+	<!-- Photo Library Permission for Choosing Images -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>EdanosAI needs access to your photo library to select food images for nutritional analysis.</string>
 </dict>
 </plist>

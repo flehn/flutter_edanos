@@ -462,7 +462,7 @@ class FoodLogScreenState extends State<FoodLogScreen> {
                 children: [
                   // Protein (top)
                   Expanded(
-                    flex: protein.clamp(1, protein),
+                    flex: protein,
                     child: Container(
                       decoration: BoxDecoration(
                         color: AppTheme.proteinColor,
@@ -474,12 +474,12 @@ class FoodLogScreenState extends State<FoodLogScreen> {
                   ),
                   // Carbs (middle)
                   Expanded(
-                    flex: carbs.clamp(1, carbs),
+                    flex: carbs,
                     child: Container(color: AppTheme.carbsColor),
                   ),
                   // Fat (bottom)
                   Expanded(
-                    flex: fat.clamp(1, fat),
+                    flex: fat,
                     child: Container(
                       decoration: BoxDecoration(
                         color: AppTheme.fatColor,
@@ -654,21 +654,6 @@ class FoodLogScreenState extends State<FoodLogScreen> {
                         ),
                       ),
                     ],
-                  ),
-                ),
-                // Quick add button
-                IconButton(
-                  onPressed: () => _addToQuickAdd(meal),
-                  icon: const Icon(
-                    Icons.add_circle_outline,
-                    color: AppTheme.primaryBlue,
-                    size: 24,
-                  ),
-                  tooltip: 'Add to Quick Add',
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(
-                    minWidth: 36,
-                    minHeight: 36,
                   ),
                 ),
                 const Icon(Icons.chevron_right, color: AppTheme.textTertiary),

@@ -873,6 +873,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _addReminderTime() async {
     final TimeOfDay? selectedTime = await showTimePicker(
       context: context,
+      initialEntryMode: TimePickerEntryMode.input,
       initialTime: const TimeOfDay(hour: 12, minute: 0),
       builder: (context, child) {
         return Theme(
@@ -921,6 +922,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _editReminderTime(int index, TimeOfDay currentTime) async {
     final TimeOfDay? selectedTime = await showTimePicker(
       context: context,
+      initialEntryMode: TimePickerEntryMode.input,
       initialTime: currentTime,
       builder: (context, child) {
         return Theme(

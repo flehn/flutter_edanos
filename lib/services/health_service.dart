@@ -22,6 +22,9 @@ class HealthService {
     HealthDataType.WEIGHT,
     HealthDataType.HEIGHT,
     HealthDataType.STEPS,
+    // Demographics (iOS only)
+    if (Platform.isIOS) HealthDataType.GENDER,
+    if (Platform.isIOS) HealthDataType.BIRTH_DATE,
   ];
 
   // Health data types we might write (e.g., sync nutrition data)
@@ -496,18 +499,95 @@ class HealthService {
   // USER PROFILE
   // ============================================
 
+  /// Get biological sex from HealthKit (iOS only)
+  static Future<String?> getGender() async {
+    if (!_hasPermissions || !Platform.isIOS) return null;
+
+    try {
+      final now = DateTime.now();
+      final yearAgo = now.subtract(const Duration(days: 365));
+
+      final data = await _health.getHealthDataFromTypes(
+        types: [HealthDataType.GENDER],
+        startTime: yearAgo,
+        endTime: now,
+      );
+
+      if (data.isEmpty) return null;
+
+      // Gender is stored as a string value
+      final genderData = data.first;
+      return genderData.value.toString();
+    } catch (e) {
+      debugPrint('Error getting gender: $e');
+      return null;
+    }
+  }
+
+  /// Get date of birth from HealthKit (iOS only)
+  static Future<DateTime?> getDateOfBirth() async {
+    if (!_hasPermissions || !Platform.isIOS) return null;
+
+    try {
+      final now = DateTime.now();
+      final yearAgo = now.subtract(const Duration(days: 365));
+
+      final data = await _health.getHealthDataFromTypes(
+        types: [HealthDataType.BIRTH_DATE],
+        startTime: yearAgo,
+        endTime: now,
+      );
+
+      if (data.isEmpty) return null;
+
+      // Parse date of birth - value is typically a string or DateTime
+      final dobData = data.first;
+      final value = dobData.value;
+      
+      // Try to parse as DateTime from the value
+      if (value is NumericHealthValue) {
+        // Some implementations return timestamp
+        return DateTime.fromMillisecondsSinceEpoch(value.numericValue.toInt());
+      }
+      
+      // Try parsing from string representation
+      final valueStr = value.toString();
+      return DateTime.tryParse(valueStr);
+    } catch (e) {
+      debugPrint('Error getting date of birth: $e');
+      return null;
+    }
+  }
+
+  /// Calculate age from date of birth
+  static Future<int?> getAge() async {
+    final dob = await getDateOfBirth();
+    if (dob == null) return null;
+
+    final now = DateTime.now();
+    int age = now.year - dob.year;
+    if (now.month < dob.month || (now.month == dob.month && now.day < dob.day)) {
+      age--;
+    }
+    return age;
+  }
+
   /// Get comprehensive user health profile
   static Future<HealthProfile> getUserProfile() async {
     final weight = await getLatestWeight();
     final height = await getLatestHeight();
     final steps = await getTodaySteps();
     final burnedCalories = await getTodayBurnedCalories();
+    final gender = await getGender();
+    final age = await getAge();
 
     return HealthProfile(
       weightKg: weight,
       heightCm: height,
       todaySteps: steps,
       todayBurnedCalories: burnedCalories,
+      gender: gender,
+      age: age,
     );
   }
 }
@@ -572,12 +652,16 @@ class HealthProfile {
   final double? heightCm;
   final int todaySteps;
   final double todayBurnedCalories;
+  final String? gender;
+  final int? age;
 
   HealthProfile({
     this.weightKg,
     this.heightCm,
     required this.todaySteps,
     required this.todayBurnedCalories,
+    this.gender,
+    this.age,
   });
 
   /// Calculate BMI if height and weight are available

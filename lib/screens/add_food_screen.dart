@@ -16,10 +16,15 @@ class AddFoodScreen extends StatefulWidget {
   const AddFoodScreen({super.key});
 
   @override
-  State<AddFoodScreen> createState() => _AddFoodScreenState();
+  State<AddFoodScreen> createState() => AddFoodScreenState();
 }
 
-class _AddFoodScreenState extends State<AddFoodScreen> {
+class AddFoodScreenState extends State<AddFoodScreen> {
+  /// Public method to refresh data (called when tab becomes active)
+  void refresh() {
+    _loadQuickAddItems();
+  }
+
   bool _isAnalyzing = false;
   String? _errorMessage;
   bool _isInitialized = false;
@@ -32,6 +37,10 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
 
   // Recording functionality
   bool _isRecording = false;
+
+  // Multi-image capture
+  List<Uint8List> _capturedImages = [];
+  bool _isInCaptureMode = false;
 
   @override
   void initState() {
@@ -203,21 +212,29 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
         );
       }
 
-      // Analyze with essential model (macros only, faster)
-      // This continues even if user switches tabs
-      final essentialResult = await GeminiService.analyzeImage(imageBytes);
+      // Load user settings to check if detailed analysis is enabled
+      final settings = await MealRepository.getUserSettings();
+      final useDetailedAnalysis = settings.useDetailedAnalysis;
+      debugPrint('🔍 Detailed Analysis Setting: $useDetailedAnalysis');
+
+      // Analyze with appropriate model based on settings
+      final analysisResult = await GeminiService.analyzeImage(
+        imageBytes,
+        includeVitamins: useDetailedAnalysis,
+      );
+      debugPrint('📊 Analysis complete, parsing response...');
 
       // Clear the analyzing snackbar
       if (mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
       }
 
-      if (essentialResult == null) {
+      if (analysisResult == null) {
         throw Exception('No response from AI');
       }
 
       // Parse the JSON response
-      final jsonData = jsonDecode(essentialResult);
+      final jsonData = jsonDecode(analysisResult);
 
       // Create Meal from the response
       final meal = Meal.fromGeminiJson(jsonData, imageBytes: imageBytes);
@@ -287,12 +304,131 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
     try {
       final imageBytes = await ImagePickerService.takePhoto();
       if (imageBytes != null) {
-        await _analyzeImage(imageBytes);
+        // Add to captured images list and show preview
+        setState(() {
+          _capturedImages.add(imageBytes);
+          _isInCaptureMode = true;
+        });
       }
     } catch (e) {
       setState(() {
         _errorMessage = 'Failed to take photo: $e';
       });
+    }
+  }
+
+  void _removeImage(int index) {
+    setState(() {
+      _capturedImages.removeAt(index);
+      if (_capturedImages.isEmpty) {
+        _isInCaptureMode = false;
+      }
+    });
+  }
+
+  void _cancelCapture() {
+    setState(() {
+      _capturedImages.clear();
+      _isInCaptureMode = false;
+    });
+  }
+
+  Future<void> _analyzeAllImages() async {
+    if (_capturedImages.isEmpty) return;
+
+    setState(() {
+      _isAnalyzing = true;
+      _isInCaptureMode = false;
+      _errorMessage = null;
+    });
+
+    try {
+      // Show analyzing indicator
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Text('Analyzing ${_capturedImages.length} image(s)...'),
+              ],
+            ),
+            duration: const Duration(seconds: 30),
+            backgroundColor: AppTheme.primaryBlue,
+          ),
+        );
+      }
+
+      // Load user settings
+      final settings = await MealRepository.getUserSettings();
+      final useDetailedAnalysis = settings.useDetailedAnalysis;
+      debugPrint('🔍 Multi-image Analysis - Detailed: $useDetailedAnalysis, Images: ${_capturedImages.length}');
+
+      // Analyze all images together
+      final result = await GeminiService.analyzeImages(
+        _capturedImages,
+        includeVitamins: useDetailedAnalysis,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      }
+
+      if (result == null) {
+        throw Exception('No response from AI');
+      }
+
+      // Parse response - use first image as representative
+      final jsonData = jsonDecode(result);
+      final meal = Meal.fromGeminiJson(jsonData, imageBytes: _capturedImages.first);
+
+      // Clear captured images
+      _capturedImages.clear();
+
+      // Navigate to food details
+      if (mounted) {
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => FoodDetailsScreen(meal: meal, isNewMeal: true),
+          ),
+        );
+      }
+    } on NotFoodException {
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('🚫 No food detected in the image(s). Please try again with a food photo.'),
+            backgroundColor: AppTheme.negativeColor,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+      // Keep images so user can retry
+      setState(() => _isInCaptureMode = true);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Analysis failed: $e'),
+            backgroundColor: AppTheme.negativeColor,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+      // Keep images so user can retry
+      setState(() => _isInCaptureMode = true);
+    } finally {
+      setState(() => _isAnalyzing = false);
     }
   }
 
@@ -413,8 +549,16 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
         );
       }
 
+      // Load user settings to check if detailed analysis is enabled
+      final settings = await MealRepository.getUserSettings();
+      final useDetailedAnalysis = settings.useDetailedAnalysis;
+      debugPrint('🎤 Voice Analysis - Detailed Setting: $useDetailedAnalysis');
+
       // Analyze with Gemini
-      final result = await GeminiService.analyzeAudio(audioBytes);
+      final result = await GeminiService.analyzeAudio(
+        audioBytes,
+        includeVitamins: useDetailedAnalysis,
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
@@ -586,33 +730,37 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
                 const SizedBox(height: 24),
               ],
 
-              // Action buttons
-              _buildActionButton(
-                icon: Icons.camera_alt_outlined,
-                label: 'Take a picture',
-                onTap: _isAnalyzing || !_isInitialized ? null : _takePhoto,
-              ),
+              // Capture preview or Action buttons
+              if (_isInCaptureMode && _capturedImages.isNotEmpty) ...[
+                // Show captured images preview
+                _buildCapturePreview(),
+              ] else ...[
+                // Normal action buttons
+                _buildActionButton(
+                  icon: Icons.camera_alt_outlined,
+                  label: 'Take a picture',
+                  onTap: _isAnalyzing || !_isInitialized ? null : _takePhoto,
+                ),
 
-              const SizedBox(height: 16),
+                const SizedBox(height: 16),
 
-              _buildActionButton(
-                icon: Icons.photo_library_outlined,
-                label: 'Choose Image',
-                onTap: _isAnalyzing || !_isInitialized ? null : _chooseImage,
-              ),
+                _buildActionButton(
+                  icon: Icons.photo_library_outlined,
+                  label: 'Choose Image',
+                  onTap: _isAnalyzing || !_isInitialized ? null : _chooseImage,
+                ),
 
-              const SizedBox(height: 16),
+                const SizedBox(height: 16),
 
-              _buildActionButton(
-                icon: _isRecording ? Icons.stop : Icons.mic_outlined,
-                label: _isRecording ? 'Stop Recording' : 'Record Description',
-                onTap: _isAnalyzing || !_isInitialized
-                    ? null
-                    : _recordDescription,
-                isRecording: _isRecording,
-              ),
-
-              const SizedBox(height: 48),
+                _buildActionButton(
+                  icon: _isRecording ? Icons.stop : Icons.mic_outlined,
+                  label: _isRecording ? 'Stop Recording' : 'Record Description',
+                  onTap: _isAnalyzing || !_isInitialized
+                      ? null
+                      : _recordDescription,
+                  isRecording: _isRecording,
+                ),
+              ],
 
               // Quick Add Section
               Align(
@@ -902,6 +1050,159 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
 
   Widget _buildFoodEmoji(String emoji) {
     return Text(emoji, style: const TextStyle(fontSize: 40));
+  }
+
+  Widget _buildCapturePreview() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Title
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              '${_capturedImages.length} image${_capturedImages.length > 1 ? 's' : ''} captured',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textPrimary,
+              ),
+            ),
+            TextButton(
+              onPressed: _cancelCapture,
+              child: const Text(
+                'Cancel',
+                style: TextStyle(color: AppTheme.negativeColor),
+              ),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 12),
+
+        // Thumbnail strip
+        SizedBox(
+          height: 80,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: _capturedImages.length,
+            itemBuilder: (context, index) {
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Stack(
+                  children: [
+                    Container(
+                      width: 80,
+                      height: 80,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: AppTheme.primaryBlue.withOpacity(0.5),
+                          width: 2,
+                        ),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: Image.memory(
+                        _capturedImages[index],
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    // Remove button
+                    Positioned(
+                      top: 2,
+                      right: 2,
+                      child: GestureDetector(
+                        onTap: () => _removeImage(index),
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.6),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.close,
+                            size: 14,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+
+        const SizedBox(height: 16),
+
+        // Info text
+        Text(
+          _capturedImages.length == 1
+              ? 'Tap "Analyze" to use this image, or "Add More" to capture additional ingredients.'
+              : 'Each image will be treated as one ingredient. Tap "Analyze" when ready.',
+          style: TextStyle(
+            fontSize: 13,
+            color: AppTheme.textTertiary,
+          ),
+        ),
+
+        const SizedBox(height: 20),
+
+        // Action buttons
+        Row(
+          children: [
+            // Analyze button
+            Expanded(
+              flex: 2,
+              child: ElevatedButton.icon(
+                onPressed: _isAnalyzing ? null : _analyzeAllImages,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primaryBlue,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                icon: _isAnalyzing
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      )
+                    : const Icon(Icons.check, size: 20),
+                label: Text(_isAnalyzing ? 'Analyzing...' : 'Analyze'),
+              ),
+            ),
+
+            const SizedBox(width: 12),
+
+            // Add More button
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _isAnalyzing ? null : _takePhoto,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppTheme.textPrimary,
+                  side: BorderSide(color: AppTheme.textTertiary),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                icon: const Icon(Icons.add_a_photo, size: 18),
+                label: const Text('Add'),
+              ),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 32),
+      ],
+    );
   }
 
   Widget _buildActionButton({

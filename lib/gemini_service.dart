@@ -205,9 +205,14 @@ Always provide values per 100g unless the user specifies a different quantity.
   // ============================================
 
   /// Analyze audio recording describing food
-  /// Uses the essential model to analyze spoken food descriptions
-  static Future<String?> analyzeAudio(Uint8List audioBytes) async {
-    final model = _analysisModelEssential;
+  /// [includeVitamins] - if true, returns comprehensive data with vitamins/minerals
+  static Future<String?> analyzeAudio(
+    Uint8List audioBytes, {
+    bool includeVitamins = false,
+  }) async {
+    final model = includeVitamins
+        ? _analysisModelComprehensive
+        : _analysisModelEssential;
 
     if (model == null) {
       throw Exception('Analysis model not initialized.');
@@ -217,7 +222,14 @@ Always provide values per 100g unless the user specifies a different quantity.
       throw Exception('No audio provided.');
     }
 
-    const prompt = '''
+    final prompt = includeVitamins
+        ? '''
+Listen to this audio recording where the user describes what they ate.
+Identify all the food items and ingredients mentioned, estimate reasonable portions,
+and provide COMPREHENSIVE nutritional information including all vitamins and minerals.
+If the user mentions specific quantities, use those. Otherwise, estimate typical serving sizes.
+'''
+        : '''
 Listen to this audio recording where the user describes what they ate.
 Identify all the food items and ingredients mentioned, estimate reasonable portions,
 and provide nutritional information for each.

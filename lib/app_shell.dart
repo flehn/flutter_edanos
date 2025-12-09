@@ -17,6 +17,7 @@ class _AppShellState extends State<AppShell> {
 
   // Keys to access screen states for refresh
   final _foodLogKey = GlobalKey<FoodLogScreenState>();
+  final _addFoodKey = GlobalKey<AddFoodScreenState>();
   final _goalsKey = GlobalKey<GoalsScreenState>();
 
   late final List<Widget> _screens;
@@ -26,7 +27,7 @@ class _AppShellState extends State<AppShell> {
     super.initState();
     _screens = [
       FoodLogScreen(key: _foodLogKey),
-      const AddFoodScreen(),
+      AddFoodScreen(key: _addFoodKey),
       GoalsScreen(key: _goalsKey),
       const SettingsScreen(),
     ];
@@ -39,6 +40,9 @@ class _AppShellState extends State<AppShell> {
     if (index == 0) {
       // Food Log tab - refresh meals
       _foodLogKey.currentState?.refresh();
+    } else if (index == 1) {
+      // Add Food tab - refresh quick add items
+      _addFoodKey.currentState?.refresh();
     } else if (index == 2) {
       // Goals tab - refresh progress
       _goalsKey.currentState?.refresh();

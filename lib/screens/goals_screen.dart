@@ -294,11 +294,11 @@ class GoalsScreenState extends State<GoalsScreen> {
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 decoration: BoxDecoration(
                   color: !_isGainMode
-                      ? AppTheme.negativeColor.withOpacity(0.2)
+                      ? AppTheme.primaryBlue.withOpacity(0.2)
                       : Colors.transparent,
                   borderRadius: BorderRadius.circular(10),
                   border: !_isGainMode
-                      ? Border.all(color: AppTheme.negativeColor, width: 1.5)
+                      ? Border.all(color: AppTheme.primaryBlue, width: 1.5)
                       : null,
                 ),
                 child: Row(
@@ -308,7 +308,7 @@ class GoalsScreenState extends State<GoalsScreen> {
                       Icons.trending_down,
                       size: 20,
                       color: !_isGainMode
-                          ? AppTheme.negativeColor
+                          ? AppTheme.primaryBlue
                           : AppTheme.textTertiary,
                     ),
                     const SizedBox(width: 8),
@@ -320,7 +320,7 @@ class GoalsScreenState extends State<GoalsScreen> {
                             ? FontWeight.w600
                             : FontWeight.normal,
                         color: !_isGainMode
-                            ? AppTheme.negativeColor
+                            ? AppTheme.primaryBlue
                             : AppTheme.textTertiary,
                       ),
                     ),
@@ -337,11 +337,11 @@ class GoalsScreenState extends State<GoalsScreen> {
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 decoration: BoxDecoration(
                   color: _isGainMode
-                      ? Colors.green.withOpacity(0.2)
+                      ? AppTheme.primaryBlue.withOpacity(0.2)
                       : Colors.transparent,
                   borderRadius: BorderRadius.circular(10),
                   border: _isGainMode
-                      ? Border.all(color: Colors.green, width: 1.5)
+                      ? Border.all(color: AppTheme.primaryBlue, width: 1.5)
                       : null,
                 ),
                 child: Row(
@@ -350,7 +350,7 @@ class GoalsScreenState extends State<GoalsScreen> {
                     Icon(
                       Icons.trending_up,
                       size: 20,
-                      color: _isGainMode ? Colors.green : AppTheme.textTertiary,
+                      color: _isGainMode ? AppTheme.primaryBlue : AppTheme.textTertiary,
                     ),
                     const SizedBox(width: 8),
                     Text(
@@ -361,7 +361,7 @@ class GoalsScreenState extends State<GoalsScreen> {
                             ? FontWeight.w600
                             : FontWeight.normal,
                         color: _isGainMode
-                            ? Colors.green
+                            ? AppTheme.primaryBlue
                             : AppTheme.textTertiary,
                       ),
                     ),
@@ -386,27 +386,27 @@ class GoalsScreenState extends State<GoalsScreen> {
     final isOver = progress > 1;
     final percentage = (progress * 100).round();
 
-    // Special handling for Calories: white by default, red when goal is met
+    // Special handling for Calories based on weight mode
     final isCalories = label == 'Calories';
     Color displayColor;
     Color labelColor;
 
     if (isCalories) {
-      // Calories: white by default, red when goal is met (progress >= 1.0)
-      if (progress >= 1.0) {
-        displayColor = AppTheme.negativeColor; // Red when goal met
+      // Calories: show red when goal is NOT met based on weight mode
+      // Lose weight: red when over goal (progress >= 1.0)
+      // Gain weight: red when under goal (progress < 1.0)
+      final goalNotMet = _isGainMode ? (progress < 1.0) : (progress >= 1.0);
+      if (goalNotMet) {
+        displayColor = AppTheme.negativeColor;
         labelColor = AppTheme.negativeColor;
       } else {
-        displayColor = Colors.white; // White when goal not met
+        displayColor = Colors.white;
         labelColor = Colors.white;
       }
     } else {
-      // Other circles: use their original colors
-      final overshootColor = _isGainMode
-          ? Colors.green
-          : AppTheme.negativeColor;
-      displayColor = isOver ? overshootColor : color;
-      labelColor = displayColor;
+      // Protein, Carbs, Fat: always use their original colors
+      displayColor = color;
+      labelColor = color;
     }
 
     return Column(
@@ -426,7 +426,7 @@ class GoalsScreenState extends State<GoalsScreen> {
                     progress: 1.0, // Full circle for background
                     progressColor: Colors.white,
                     backgroundColor: Colors.transparent,
-                    strokeWidth: 5,
+                    strokeWidth: 2, // Thinner dots
                     isDotted: true, // Dotted background
                   ),
                 ),
@@ -521,13 +521,13 @@ class GoalsScreenState extends State<GoalsScreen> {
             Container(
               width: 1,
               height: 50,
-              color: AppTheme.textTertiary.withOpacity(0.2),
+              color: Colors.white.withOpacity(0.3),
             ),
             _buildWeekStat('Days Tracked', '$_daysTracked', 'of 7'),
             Container(
               width: 1,
               height: 50,
-              color: AppTheme.textTertiary.withOpacity(0.2),
+              color: Colors.white.withOpacity(0.3),
             ),
             _buildWeekStat('Goal Met', '$_goalMetDays', 'days'),
           ],
@@ -792,15 +792,13 @@ class _CircleProgressPainter extends CustomPainter {
       ..strokeWidth = strokeWidth
       ..strokeCap = StrokeCap.round;
 
-    // Draw dotted circle by drawing small arcs
-    const dotCount = 40; // Number of dots in the full circle
-    const dotLength = 3.0; // Length of each dot
-    const gapLength = 2.0; // Gap between dots
+    // Draw dotted circle by drawing small arcs with visible gaps
+    const dotCount = 20; // Number of dots around the circle
+    const gapRatio = 0.9; // 90% of each segment is gap (smaller dots, bigger gaps)
 
-    final totalLength = 2 * 3.14159 * radius;
-    final dotAngle = (dotLength / totalLength) * 2 * 3.14159;
-    final gapAngle = (gapLength / totalLength) * 2 * 3.14159;
-    final segmentAngle = dotAngle + gapAngle;
+    const fullCircle = 2 * 3.14159;
+    final segmentAngle = fullCircle / dotCount;
+    final dotAngle = segmentAngle * (1 - gapRatio);
 
     const startAngle = -90 * 3.14159 / 180; // Start from top
 

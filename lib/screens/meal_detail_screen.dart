@@ -66,6 +66,7 @@ class _MealDetailScreenState extends State<MealDetailScreen> {
   Future<void> _selectTime() async {
     final TimeOfDay? picked = await showTimePicker(
       context: context,
+      initialEntryMode: TimePickerEntryMode.input,
       initialTime: TimeOfDay.fromDateTime(_meal.scannedAt),
       builder: (context, child) {
         return Theme(
