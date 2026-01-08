@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:health/health.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Service for accessing health data from Apple Health (iOS) and Health Connect (Android).
 ///
@@ -14,6 +15,9 @@ class HealthService {
   static final Health _health = Health();
   static bool _isInitialized = false;
   static bool _hasPermissions = false;
+  
+  // SharedPreferences key for persisting permission state
+  static const String _permissionKey = 'health_permission_granted';
 
   // Health data types we need to read
   static final List<HealthDataType> _readTypes = [
@@ -50,7 +54,33 @@ class HealthService {
     if (_isInitialized || !isAvailable) return;
 
     await _health.configure();
+    
+    // Load persisted permission state
+    await _loadPersistedPermission();
+    
     _isInitialized = true;
+  }
+  
+  /// Load persisted permission state from SharedPreferences
+  static Future<void> _loadPersistedPermission() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _hasPermissions = prefs.getBool(_permissionKey) ?? false;
+      debugPrint('[HealthService] Loaded persisted permission: $_hasPermissions');
+    } catch (e) {
+      debugPrint('[HealthService] Error loading persisted permission: $e');
+    }
+  }
+  
+  /// Save permission state to SharedPreferences
+  static Future<void> _savePermissionState(bool granted) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_permissionKey, granted);
+      debugPrint('[HealthService] Saved permission state: $granted');
+    } catch (e) {
+      debugPrint('[HealthService] Error saving permission state: $e');
+    }
   }
 
   /// Check if we have health permissions
@@ -61,6 +91,10 @@ class HealthService {
       // Check permissions for read types
       final status = await _health.hasPermissions(_readTypes);
       _hasPermissions = status ?? false;
+      
+      // Persist the permission state
+      await _savePermissionState(_hasPermissions);
+      
       return _hasPermissions;
     } catch (e) {
       debugPrint('Error checking health permissions: $e');
@@ -90,6 +124,9 @@ class HealthService {
         allTypes,
         permissions: permissions,
       );
+      
+      // Persist the permission state
+      await _savePermissionState(_hasPermissions);
 
       return _hasPermissions;
     } catch (e) {
@@ -171,7 +208,10 @@ class HealthService {
 
   /// Get burned calories for a specific date
   static Future<double> getBurnedCaloriesForDate(DateTime date) async {
-    if (!_hasPermissions) return 0;
+    if (!_hasPermissions) {
+      debugPrint('[HealthService] No permissions for burned calories');
+      return 0;
+    }
 
     try {
       final startOfDay = DateTime(date.year, date.month, date.day);
@@ -190,6 +230,7 @@ class HealthService {
         }
       }
 
+      debugPrint('[HealthService] Burned calories for $date: ${totalCalories.round()} kcal (${data.length} points)');
       return totalCalories;
     } catch (e) {
       debugPrint('Error getting burned calories for date: $e');

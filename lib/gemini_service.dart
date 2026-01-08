@@ -1,4 +1,5 @@
 import 'package:firebase_ai/firebase_ai.dart';
+import 'package:flutter/foundation.dart';
 import 'model_config.dart';
 import 'dart:typed_data';
 
@@ -371,9 +372,9 @@ ${meals.map((m) => '- $m').join('\n')}
 Provide a brief, direct health evaluation for this day. Only focus on the present information and do not make any predictions or assumptions!
 """;
 
-    print('=== AI Evaluation Prompt ===');
-    print(prompt);
-    print('============================');
+    debugPrint('=== AI Evaluation Prompt ===');
+    debugPrint(prompt);
+    debugPrint('============================');
 
     final content = [Content.text(prompt)];
     final response = await _evaluationModel!.generateContent(content);

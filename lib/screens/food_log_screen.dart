@@ -57,6 +57,9 @@ class FoodLogScreenState extends State<FoodLogScreen> {
   bool _isEvaluationLoading = false;
   bool _isEvaluationExpanded = false;
   UserSettings? _userSettings;
+  
+  // Flag to prevent duplicate health data loading
+  bool _healthDataLoaded = false;
 
   @override
   void initState() {
@@ -80,6 +83,9 @@ class FoodLogScreenState extends State<FoodLogScreen> {
       
       // 2. Fetch the start date of history
       final firstDate = await MealRepository.getFirstMealDate();
+      
+      // 3. Load health data ONCE on init
+      await _loadHealthDataOnce();
       
       if (mounted) {
         setState(() {
@@ -145,14 +151,52 @@ class FoodLogScreenState extends State<FoodLogScreen> {
         _isLoading = false;
       });
       
-      // If this is the currently selected week, refresh meal details
+      // If this is the currently selected week, refresh meal details only
       if (_getWeekKey(_selectedDate) == weekKey) {
         await _loadMealsForSelectedDay();
-        await _loadHealthData(weekStart);
+        // Health data is loaded separately in _loadHealthDataOnce()
       }
     } catch (e) {
       debugPrint('Error loading week data: $e');
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  /// Load health data only once when screen initializes
+  Future<void> _loadHealthDataOnce() async {
+    if (_healthDataLoaded) return;
+    _healthDataLoaded = true;
+    
+    if (!HealthService.isAvailable) return;
+    
+    try {
+      // Check if we have permissions
+      final hasPerms = await HealthService.hasPermissions();
+      if (!hasPerms) {
+        _healthDataLoaded = false; // Allow retry if no permissions
+        return;
+      }
+      
+      final now = DateTime.now();
+      final weekStart = now.subtract(Duration(days: now.weekday - 1));
+      
+      // Load burned calories for today
+      final todayBurned = await HealthService.getBurnedCaloriesForDate(_selectedDate);
+      
+      // Load weekly burned calories
+      final weeklyBurned = await HealthService.getWeeklyBurnedCalories(weekStart);
+      
+      if (mounted) {
+        setState(() {
+          _burnedCalories = todayBurned;
+          _weeklyBurnedCalories = weeklyBurned;
+        });
+      }
+      
+      debugPrint('[FoodLog] Health data loaded: burned=$todayBurned');
+    } catch (e) {
+      debugPrint('Error loading health data once: $e');
+      _healthDataLoaded = false; // Allow retry on error
     }
   }
 
