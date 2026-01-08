@@ -202,13 +202,23 @@ class FoodLogScreenState extends State<FoodLogScreen> {
   }
 
   void _onDaySelected(DateTime date) {
+    // Immediately update selected date and show cached burned calories
+    final dayKey = DateTime(date.year, date.month, date.day);
+    final cachedBurned = _weeklyBurnedCalories[dayKey] ?? _burnedCalories;
+    
     setState(() {
       _selectedDate = date;
+      _burnedCalories = cachedBurned;
     });
     
-    // Ensure data is loaded for this date (if user tapped a day in a week not fully loaded)
-    _loadWeekDataForDate(date);
+    // Load meals for new day (this will also update burned calories if cache miss)
     _loadMealsForSelectedDay();
+    
+    // Only load week data if not cached (to avoid re-triggering meal loads)
+    final weekKey = _getWeekKey(date);
+    if (!_weekCache.containsKey(weekKey)) {
+      _loadWeekDataForDate(date);
+    }
   }
 
   @override
@@ -345,16 +355,16 @@ class FoodLogScreenState extends State<FoodLogScreen> {
                        GestureDetector(
                          onTap: _jumpToToday,
                          child: Container(
-                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                            decoration: BoxDecoration(
                              color: AppTheme.primaryBlue,
-                             borderRadius: BorderRadius.circular(16),
+                             borderRadius: BorderRadius.circular(12),
                            ),
                            child: const Text(
-                             'Today',
+                             'Go to today',
                              style: TextStyle(
                                color: Colors.white,
-                               fontSize: 12,
+                               fontSize: 11,
                                fontWeight: FontWeight.w600,
                              ),
                            ),
@@ -479,19 +489,28 @@ class FoodLogScreenState extends State<FoodLogScreen> {
         _selectedDate.day == now.day;
   }
 
-  /// Get total number of days from first meal to today
+  /// Get total number of days from first meal to today (minimum 7 days for current week)
   int _getTotalDays() {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final start = _firstMealDate ?? today.subtract(const Duration(days: 30));
-    return today.difference(start).inDays + 1; // +1 to include today
+    // Get start of current week (Monday)
+    final weekStart = today.subtract(Duration(days: today.weekday - 1));
+    final start = _firstMealDate != null && _firstMealDate!.isBefore(weekStart)
+        ? _firstMealDate!
+        : weekStart;
+    final days = today.difference(start).inDays + 1;
+    return days < 7 ? 7 : days; // Minimum 7 days
   }
 
   /// Get date for a specific index in the chart (0 = oldest)
   DateTime _getDateForIndex(int index) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final start = _firstMealDate ?? today.subtract(const Duration(days: 30));
+    // Get start of current week (Monday)
+    final weekStart = today.subtract(Duration(days: today.weekday - 1));
+    final start = _firstMealDate != null && _firstMealDate!.isBefore(weekStart)
+        ? _firstMealDate!
+        : weekStart;
     return start.add(Duration(days: index));
   }
 
