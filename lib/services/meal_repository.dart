@@ -127,6 +127,11 @@ class MealRepository {
     return FirestoreService.getWeeklySummaries(weekStart);
   }
 
+  /// Get the date of the first logged meal
+  static Future<DateTime?> getFirstMealDate() async {
+    return FirestoreService.getFirstMealDate();
+  }
+
   // ============================================
   // QUICK ADD
   // ============================================
@@ -188,5 +193,35 @@ class MealRepository {
   /// Save user settings
   static Future<void> saveUserSettings(UserSettings settings) async {
     await FirestoreService.saveUserSettings(settings);
+  }
+
+  // ============================================
+  // DATA MANAGEMENT
+  // ============================================
+
+  /// Clear all user data (meals, quick add items, settings)
+  static Future<void> clearAllData() async {
+    await FirestoreService.deleteAllUserData();
+  }
+
+  /// Export all meals as CSV
+  static Future<String> exportMealsAsCSV() async {
+    final meals = await FirestoreService.getAllMeals();
+    
+    final buffer = StringBuffer();
+    // CSV header
+    buffer.writeln('Date,Time,Name,Calories,Protein (g),Carbs (g),Fat (g),Fiber (g),Sugar (g)');
+    
+    for (final meal in meals) {
+      final date = '${meal.scannedAt.year}-${meal.scannedAt.month.toString().padLeft(2, '0')}-${meal.scannedAt.day.toString().padLeft(2, '0')}';
+      final time = '${meal.scannedAt.hour.toString().padLeft(2, '0')}:${meal.scannedAt.minute.toString().padLeft(2, '0')}';
+      // Escape commas and quotes in name
+      final name = meal.name.replaceAll('"', '""');
+      buffer.writeln(
+        '$date,$time,"$name",${meal.totalCalories.round()},${meal.totalProtein.round()},${meal.totalCarbs.round()},${meal.totalFat.round()},${meal.totalFiber.round()},${meal.totalSugar.round()}'
+      );
+    }
+    
+    return buffer.toString();
   }
 }

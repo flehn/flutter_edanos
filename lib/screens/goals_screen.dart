@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../services/meal_repository.dart';
 import '../services/firestore_service.dart';
+import '../services/health_service.dart';
 
 /// Goals Screen - User's daily calorie and macro targets
 class GoalsScreen extends StatefulWidget {
@@ -637,6 +638,14 @@ class _EditGoalsSheetState extends State<_EditGoalsSheet> {
   late TextEditingController _perMealCarbsController;
   late TextEditingController _perMealFatController;
 
+  // User's body weight (from Health or Settings)
+  double _bodyWeightKg = 70.0;
+  bool _isLoadingWeight = true;
+  bool _weightFromHealth = false;
+
+  // Protein preset: 0.8, 1.2, 2.0, or null for custom
+  double? _selectedProteinPreset;
+
   @override
   void initState() {
     super.initState();
@@ -654,10 +663,76 @@ class _EditGoalsSheetState extends State<_EditGoalsSheet> {
         TextEditingController(text: widget.perMealCarbs.toString());
     _perMealFatController =
         TextEditingController(text: widget.perMealFat.toString());
+
+    // Add listeners to detect manual protein changes
+    _proteinController.addListener(_onProteinChanged);
+
+    // Load user's body weight
+    _loadBodyWeight();
+  }
+
+  Future<void> _loadBodyWeight() async {
+    try {
+      // First try to get weight from Apple Health if connected
+      final hasHealth = await HealthService.hasPermissions();
+      if (hasHealth) {
+        final healthWeight = await HealthService.getLatestWeight();
+        if (healthWeight != null && healthWeight > 0) {
+          setState(() {
+            _bodyWeightKg = healthWeight;
+            _weightFromHealth = true;
+            _isLoadingWeight = false;
+          });
+          return;
+        }
+      }
+
+      // Fall back to weight from user settings
+      final settings = await MealRepository.getUserSettings();
+      setState(() {
+        _bodyWeightKg = settings.weight;
+        _weightFromHealth = false;
+        _isLoadingWeight = false;
+      });
+    } catch (e) {
+      debugPrint('Error loading weight: $e');
+      setState(() => _isLoadingWeight = false);
+    }
+  }
+
+  void _onProteinChanged() {
+    // If user manually edits protein, switch to custom mode
+    // Only trigger if not currently in a preset update
+    if (_selectedProteinPreset != null) {
+      final currentProtein = int.tryParse(_proteinController.text) ?? 0;
+      final expectedProtein = (_bodyWeightKg * _selectedProteinPreset!).round();
+      if (currentProtein != expectedProtein) {
+        setState(() => _selectedProteinPreset = null);
+      }
+    }
+  }
+
+  void _selectProteinPreset(double? preset) {
+    setState(() {
+      _selectedProteinPreset = preset;
+      if (preset != null) {
+        final protein = (_bodyWeightKg * preset).round();
+        _proteinController.text = protein.toString();
+      }
+    });
+  }
+
+  /// Calculate calories from macros: 4*protein + 4*carbs + 9*fat
+  int _calculateCaloriesFromMacros() {
+    final protein = int.tryParse(_proteinController.text) ?? 0;
+    final carbs = int.tryParse(_carbsController.text) ?? 0;
+    final fat = int.tryParse(_fatController.text) ?? 0;
+    return (protein * 4) + (carbs * 4) + (fat * 9);
   }
 
   @override
   void dispose() {
+    _proteinController.removeListener(_onProteinChanged);
     _caloriesController.dispose();
     _proteinController.dispose();
     _carbsController.dispose();
@@ -670,6 +745,11 @@ class _EditGoalsSheetState extends State<_EditGoalsSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final calculatedCalories = _calculateCaloriesFromMacros();
+    final enteredCalories = int.tryParse(_caloriesController.text) ?? 0;
+    final caloriesDiff = (calculatedCalories - enteredCalories).abs();
+    final hasSignificantDiff = caloriesDiff > 50;
+
     return Padding(
       padding: EdgeInsets.only(
         left: 24,
@@ -725,10 +805,54 @@ class _EditGoalsSheetState extends State<_EditGoalsSheet> {
           _buildGoalInput('Daily Calories', _caloriesController, 'kcal'),
           const SizedBox(height: 16),
           _buildGoalInput('Protein', _proteinController, 'g'),
+
+          // Protein preset buttons
+          const SizedBox(height: 12),
+          _buildProteinPresets(),
+
           const SizedBox(height: 16),
           _buildGoalInput('Carbohydrates', _carbsController, 'g'),
           const SizedBox(height: 16),
           _buildGoalInput('Fat', _fatController, 'g'),
+
+          // Macro formula info text
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: hasSignificantDiff
+                  ? AppTheme.warningColor.withOpacity(0.1)
+                  : AppTheme.cardDark,
+              borderRadius: BorderRadius.circular(8),
+              border: hasSignificantDiff
+                  ? Border.all(color: AppTheme.warningColor.withOpacity(0.3))
+                  : null,
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.info_outline,
+                  size: 18,
+                  color: hasSignificantDiff
+                      ? AppTheme.warningColor
+                      : AppTheme.textTertiary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Calculated: $calculatedCalories kcal (4×protein + 4×carbs + 9×fat)',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: hasSignificantDiff
+                          ? AppTheme.warningColor
+                          : AppTheme.textTertiary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
           const SizedBox(height: 24),
           const Text(
             'Per meal targets',
@@ -745,6 +869,71 @@ class _EditGoalsSheetState extends State<_EditGoalsSheet> {
           const SizedBox(height: 12),
           _buildGoalInput('Fat per meal', _perMealFatController, 'g'),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProteinPresets() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Preset buttons
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              _buildPresetButton(0.8, '0.8g/kg'),
+              const SizedBox(width: 8),
+              _buildPresetButton(1.2, '1.2g/kg'),
+              const SizedBox(width: 8),
+              _buildPresetButton(2.0, '2.0g/kg'),
+              const SizedBox(width: 8),
+              _buildPresetButton(null, 'Custom'),
+            ],
+          ),
+        ),
+        // Weight source info
+        const SizedBox(height: 8),
+        if (_isLoadingWeight)
+          Text(
+            'Loading body weight...',
+            style: TextStyle(fontSize: 12, color: AppTheme.textTertiary),
+          )
+        else
+          Text(
+            'Based on ${_bodyWeightKg.toStringAsFixed(1)} kg${_weightFromHealth ? ' (from Health)' : ''}',
+            style: TextStyle(fontSize: 12, color: AppTheme.textTertiary),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildPresetButton(double? preset, String label) {
+    final isSelected = _selectedProteinPreset == preset;
+    return GestureDetector(
+      onTap: () => _selectProteinPreset(preset),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? AppTheme.proteinColor.withOpacity(0.2)
+              : AppTheme.cardDark,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isSelected
+                ? AppTheme.proteinColor
+                : Colors.transparent,
+            width: 1.5,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+            color: isSelected ? AppTheme.proteinColor : AppTheme.textSecondary,
+          ),
         ),
       ),
     );
@@ -769,6 +958,7 @@ class _EditGoalsSheetState extends State<_EditGoalsSheet> {
             controller: controller,
             keyboardType: TextInputType.number,
             textAlign: TextAlign.center,
+            onChanged: (_) => setState(() {}), // Trigger rebuild for macro calc
             style: const TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w600,

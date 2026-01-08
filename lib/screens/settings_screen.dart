@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:share_plus/share_plus.dart';
 import '../theme/app_theme.dart';
 import '../services/auth_service.dart';
 import '../services/health_service.dart';
@@ -21,6 +23,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _useDetailedAnalysis = false;
   bool _syncToHealth = false;
   String _units = 'Metric';
+  
+  // Personal profile
+  String _gender = 'male';
+  int _age = 30;
+  double _weight = 70.0;
 
   // Health data
   bool _healthAvailable = false;
@@ -66,6 +73,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _syncToHealth = settings.syncToHealth;
           _units = settings.units;
           _reminderTimes = times;
+          _gender = settings.gender;
+          _age = settings.age;
+          _weight = settings.weight;
         });
       }
     } catch (e) {
@@ -102,6 +112,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         reminderTimesMinutes: _reminderTimes
             .map((t) => t.hour * 60 + t.minute)
             .toList(),
+        gender: _gender,
+        age: _age,
+        weight: _weight,
       );
       await MealRepository.saveUserSettings(settings);
     } catch (e) {
@@ -362,7 +375,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 icon: Icons.person_outline,
                 title: _userEmail ?? 'Account',
                 subtitle: 'Signed in',
-                onTap: () {},
+                trailing: const SizedBox(), // Non-tappable
+              ),
+              // Account management options
+              _buildSettingsTile(
+                icon: Icons.email_outlined,
+                title: 'Change Email',
+                subtitle: 'Update your email address',
+                onTap: _showChangeEmailDialog,
               ),
               // Account management options
               _buildSettingsTile(
@@ -378,8 +398,62 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 textColor: AppTheme.negativeColor,
                 onTap: _showDeleteAccountDialog,
               ),
+              _buildSettingsTile(
+                icon: Icons.logout,
+                title: 'Sign Out',
+                textColor: AppTheme.negativeColor,
+                onTap: _showSignOutDialog,
+              ),
             ],
 
+
+            const SizedBox(height: 24),
+
+            // Personal Profile section
+            _buildSectionHeader('Personal Profile'),
+            _buildSettingsTile(
+              icon: Icons.person_outline,
+              title: 'Gender',
+              subtitle: _gender == 'male' ? 'Male' : 'Female',
+              trailing: DropdownButton<String>(
+                value: _gender,
+                dropdownColor: AppTheme.cardDark,
+                underline: const SizedBox(),
+                icon: const Icon(
+                  Icons.chevron_right,
+                  color: AppTheme.textTertiary,
+                ),
+                items: ['male', 'female'].map((g) {
+                  return DropdownMenuItem(
+                    value: g,
+                    child: Text(
+                      g == 'male' ? 'Male' : 'Female',
+                      style: const TextStyle(color: AppTheme.textPrimary),
+                    ),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() => _gender = value);
+                    _saveSettingsToFirebase();
+                  }
+                },
+              ),
+            ),
+            _buildSettingsTile(
+              icon: Icons.cake_outlined,
+              title: 'Age',
+              subtitle: '$_age years',
+              onTap: () => _showAgeDialog(),
+            ),
+            _buildSettingsTile(
+              icon: Icons.monitor_weight_outlined,
+              title: 'Weight',
+              subtitle: _units == 'Metric'
+                  ? '${_weight.toStringAsFixed(1)} kg'
+                  : '${(_weight * 2.205).toStringAsFixed(1)} lbs',
+              onTap: () => _showWeightDialog(),
+            ),
 
             const SizedBox(height: 24),
 
@@ -438,6 +512,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onChanged: (value) {
                   if (value != null) {
                     setState(() => _units = value);
+                    _saveSettingsToFirebase();
                   }
                 },
               ),
@@ -552,12 +627,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         '${_healthProfile!.todayBurnedCalories.round()} kcal',
                     onTap: () {},
                   ),
-                  _buildSettingsTile(
-                    icon: Icons.directions_walk,
-                    title: 'Steps Today',
-                    subtitle: '${_healthProfile!.todaySteps} steps',
-                    onTap: () {},
-                  ),
                 ],
                 _buildSwitchTile(
                   icon: Icons.sync,
@@ -595,8 +664,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _buildSettingsTile(
               icon: Icons.cloud_download_outlined,
               title: 'Export Data',
-              subtitle: 'Download your food log',
-              onTap: () {},
+              subtitle: 'Download your food log as CSV',
+              onTap: _exportDataAsCSV,
             ),
             _buildSettingsTile(
               icon: Icons.delete_outline,
@@ -614,7 +683,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               icon: Icons.info_outline,
               title: 'About EdanosAI',
               subtitle: 'Version 1.0.0',
-              onTap: () {},
+              onTap: () async {
+                final url = Uri.parse('https://www.edanos.com');
+                if (await canLaunchUrl(url)) {
+                  await launchUrl(url, mode: LaunchMode.externalApplication);
+                }
+              },
             ),
             _buildSettingsTile(
               icon: Icons.article_outlined,
@@ -627,39 +701,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onTap: () {},
             ),
             _buildSettingsTile(
-              icon: Icons.help_outline,
-              title: 'Help & Support',
-              onTap: () {},
+              icon: Icons.email_outlined,
+              title: 'Contact Support',
+              subtitle: 'hello@edanos.com',
+              trailing: const SizedBox(), // Non-tappable, just displays info
             ),
-
-            const SizedBox(height: 32),
-
-            // Sign out - only show if user has an account
-            if (_hasAccount)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    onPressed: _showSignOutDialog,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppTheme.negativeColor,
-                      side: const BorderSide(color: AppTheme.negativeColor),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    child: const Text(
-                      'Sign Out',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
 
             const SizedBox(height: 48),
           ],
@@ -983,10 +1029,270 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  void _showClearDataDialog() {
+  /// Show dialog to input age
+  void _showAgeDialog() {
+    final controller = TextEditingController(text: _age.toString());
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
+        backgroundColor: AppTheme.surfaceDark,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          'Enter Your Age',
+          style: TextStyle(color: AppTheme.textPrimary),
+        ),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          decoration: InputDecoration(
+            hintText: 'Age in years',
+            hintStyle: TextStyle(color: AppTheme.textTertiary),
+            filled: true,
+            fillColor: AppTheme.cardDark,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+            suffixText: 'years',
+            suffixStyle: const TextStyle(color: AppTheme.textSecondary),
+          ),
+          style: const TextStyle(color: AppTheme.textPrimary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final age = int.tryParse(controller.text);
+              if (age != null && age > 0 && age < 150) {
+                setState(() => _age = age);
+                _saveSettingsToFirebase();
+                Navigator.of(context).pop();
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryBlue,
+            ),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Show dialog to input weight
+  void _showWeightDialog() {
+    final isMetric = _units == 'Metric';
+    final displayWeight = isMetric ? _weight : _weight * 2.205;
+    final controller = TextEditingController(text: displayWeight.toStringAsFixed(1));
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppTheme.surfaceDark,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          'Enter Your Weight',
+          style: TextStyle(color: AppTheme.textPrimary),
+        ),
+        content: TextField(
+          controller: controller,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: InputDecoration(
+            hintText: isMetric ? 'Weight in kg' : 'Weight in lbs',
+            hintStyle: TextStyle(color: AppTheme.textTertiary),
+            filled: true,
+            fillColor: AppTheme.cardDark,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+            suffixText: isMetric ? 'kg' : 'lbs',
+            suffixStyle: const TextStyle(color: AppTheme.textSecondary),
+          ),
+          style: const TextStyle(color: AppTheme.textPrimary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final input = double.tryParse(controller.text);
+              if (input != null && input > 0) {
+                // Convert to kg if imperial
+                final weightKg = isMetric ? input : input / 2.205;
+                setState(() => _weight = weightKg);
+                _saveSettingsToFirebase();
+                Navigator.of(context).pop();
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryBlue,
+            ),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Export data as CSV and share
+  Future<void> _exportDataAsCSV() async {
+    try {
+      // Show loading indicator
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Preparing export...')),
+      );
+
+      final csvData = await MealRepository.exportMealsAsCSV();
+      
+      if (csvData.isEmpty || csvData.split('\n').length <= 1) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No meals to export'),
+              backgroundColor: AppTheme.warningColor,
+            ),
+          );
+        }
+        return;
+      }
+
+      // Share the CSV data
+      await Share.share(
+        csvData,
+        subject: 'EdanosAI Food Log Export',
+      );
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to export data: $e'),
+            backgroundColor: AppTheme.negativeColor,
+          ),
+        );
+      }
+    }
+  }
+
+  /// Show dialog to change email
+  void _showChangeEmailDialog() {
+    final emailController = TextEditingController();
+    bool isLoading = false;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: AppTheme.surfaceDark,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text(
+            'Change Email',
+            style: TextStyle(color: AppTheme.textPrimary),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'A verification email will be sent to your new address.',
+                style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: emailController,
+                keyboardType: TextInputType.emailAddress,
+                style: const TextStyle(color: AppTheme.textPrimary),
+                decoration: InputDecoration(
+                  labelText: 'New Email',
+                  labelStyle: TextStyle(color: AppTheme.textTertiary),
+                  filled: true,
+                  fillColor: AppTheme.cardDark,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: isLoading ? null : () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: isLoading
+                  ? null
+                  : () async {
+                      if (emailController.text.isEmpty) {
+                        ScaffoldMessenger.of(this.context).showSnackBar(
+                          const SnackBar(content: Text('Please enter an email')),
+                        );
+                        return;
+                      }
+
+                      setDialogState(() => isLoading = true);
+
+                      try {
+                        await AuthService.updateEmail(emailController.text);
+                        Navigator.of(context).pop();
+                        if (mounted) {
+                          ScaffoldMessenger.of(this.context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Verification email sent. Please check your inbox.',
+                              ),
+                              backgroundColor: Colors.green,
+                            ),
+                          );
+                          setState(() {}); // Refresh UI
+                        }
+                      } catch (e) {
+                        setDialogState(() => isLoading = false);
+                        if (mounted) {
+                          ScaffoldMessenger.of(this.context).showSnackBar(
+                            SnackBar(
+                              content: Text('Failed to update email: $e'),
+                              backgroundColor: AppTheme.negativeColor,
+                            ),
+                          );
+                        }
+                      }
+                    },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primaryBlue,
+              ),
+              child: isLoading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Text('Update'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showClearDataDialog() {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
         backgroundColor: AppTheme.surfaceDark,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text(
@@ -999,13 +1305,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('Cancel'),
           ),
           TextButton(
-            onPressed: () {
-              // TODO: Clear data
-              Navigator.of(context).pop();
+            onPressed: () async {
+              Navigator.of(dialogContext).pop();
+              try {
+                await MealRepository.clearAllData();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('All data cleared successfully'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Failed to clear data: $e'),
+                      backgroundColor: AppTheme.negativeColor,
+                    ),
+                  );
+                }
+              }
             },
             child: const Text(
               'Clear',
@@ -1020,7 +1345,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void _showSignOutDialog() {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         backgroundColor: AppTheme.surfaceDark,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text(
@@ -1033,12 +1358,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('Cancel'),
           ),
           TextButton(
             onPressed: () async {
-              Navigator.of(context).pop();
+              Navigator.of(dialogContext).pop();
               try {
                 await AuthService.signOut();
                 if (mounted) {
@@ -1074,7 +1399,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         backgroundColor: AppTheme.surfaceDark,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text(
@@ -1129,7 +1454,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               alignment: Alignment.centerRight,
               child: TextButton(
                 onPressed: () {
-                  Navigator.of(context).pop();
+                  Navigator.of(dialogContext).pop();
                   _showForgotPasswordDialog();
                 },
                 style: TextButton.styleFrom(
@@ -1147,12 +1472,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('Cancel'),
           ),
           TextButton(
             onPressed: () async {
-              Navigator.of(context).pop();
+              Navigator.of(dialogContext).pop();
               try {
                 await AuthService.signInWithEmail(
                   email: emailController.text.trim(),
@@ -1196,7 +1521,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         backgroundColor: AppTheme.surfaceDark,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text(
@@ -1263,7 +1588,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('Cancel'),
           ),
           TextButton(
@@ -1289,7 +1614,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 return;
               }
 
-              Navigator.of(context).pop();
+              Navigator.of(dialogContext).pop();
               try {
                 // Link anonymous account to email/password
                 await AuthService.createAccount(
@@ -1334,7 +1659,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         backgroundColor: AppTheme.surfaceDark,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text(
@@ -1369,7 +1694,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('Cancel'),
           ),
           TextButton(
@@ -1385,7 +1710,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 return;
               }
 
-              Navigator.of(context).pop();
+              Navigator.of(dialogContext).pop();
               try {
                 await AuthService.sendPasswordResetEmail(email);
                 if (mounted) {
@@ -1425,7 +1750,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         backgroundColor: AppTheme.surfaceDark,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text(
@@ -1486,7 +1811,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('Cancel'),
           ),
           TextButton(
@@ -1512,7 +1837,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 return;
               }
 
-              Navigator.of(context).pop();
+              Navigator.of(dialogContext).pop();
               try {
                 // Re-authenticate first
                 await AuthService.reauthenticate(

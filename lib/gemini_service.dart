@@ -10,15 +10,24 @@ import 'dart:typed_data';
 /// Models:
 /// 1. Analysis Model (gemini-2.5-flash) - Image analysis (macros or comprehensive)
 /// 2. Search Model (gemini-2.5-flash-lite + GoogleSearch) - Ingredient lookup
+/// 3. Evaluation Model (gemini-2.5-flash) - Health evaluation, once a day after 18:00 
+
 class GeminiService {
   static GenerativeModel? _analysisModelEssential;
   static GenerativeModel? _analysisModelComprehensive;
   static GenerativeModel? _searchModel;
+  static GenerativeModel? _evaluationModel;
   static bool _isInitialized = false;
 
   // System prompts - Base prompt with modular additions
   static const String _basePrompt = """
-You are EdanosAI Food Analyzer. You analyze food and identify ALL individual ingredients with their nutritional values.
+You are EdanosAI Food Analyzer. You analyze food pictures. First you check if the picture is a nutritional label or an actual food dish. 
+
+Do one of the following three options depending on the input:
+
+1. In case of a nutritional label extract the nutritional values from the table per 100g! Save this as one single ingredient! 
+2. In case of an actual food dish, identify ALL individual ingredients with their nutritional values.
+3. In case the input does not depict either a food dish or a nutritional label, examples are random pictures or empty plates etc, then return "No valid input detected".
 
 Your task:
 1. Identify ALL ingredients visible or described
@@ -26,20 +35,31 @@ Your task:
 3. Provide nutritional values for EACH ingredient separately
 
 Convert all amounts to grams (g) or milliliters (ml).
-If an image shows a packaged food product with a Nutritional Information Panel, only extract the nutritional values from the table per 100g! Save this as one single ingredient! 
 
 For each ingredient, provide:
 - Calories (kcal), Protein (g), Carbohydrates (g), Sugar (g)
 - Total Fat (g), Saturated Fat (g), Unsaturated Fat (g), Fiber (g)
 """;
 
+  // Comprehensive nutrients (vitamins + minerals)
+  static const String _comprehensiveNutrientsAddition = """
+
+- Fatty acids: Omega-3, Omega-6, Trans Fat
+- Minerals: Sodium, Potassium, Calcium, Magnesium, Phosphorus, Iron, Zinc, Selenium, Iodine, Copper, Manganese, Chromium
+- Vitamins: A, D, E, K, C, B1 (Thiamin), B2 (Riboflavin), B3 (Niacin), B5, B6, B7 (Biotin), B9 (Folate), B12
+- Other: Choline, Cholesterol
+
+Convert amounts to appropriate units (g, mg, mcg, IU).
+""";
+
 // System prompts - Base prompt with modular additions
+
   static const String _aiEvaluationPrompt = """
   Provide a brief overall health evaluation for the dish taking all ingredients into account in the field "aiEvaluation".
   For this, consider the following:
   - is the total amount of saturated fat above 5.0g / 100g, this is a risk factor. 
   - is the total amount of sodium above 1.5g / 100g
-  - is the total amount of sugars above 22g raise a warnig that it contains high amount of sugar! 
+  - is the total amount of sugars above 25g raise a warnig that it contains high amount of sugar! 
 
   Set "isHighlyProcessed" to true if the dish:
   - chemical-based preservatives, emulsifiers like hydrogenated oils, sweeteners like high fructose corn syrup, and artificial colors and flavors.
@@ -55,17 +75,6 @@ IMPORTANT for multiple images:
 - Name the dish based on the combination of all ingredients
 """;
 
-
-  // Comprehensive nutrients (vitamins + minerals)
-  static const String _comprehensiveNutrientsAddition = """
-
-- Fatty acids: Omega-3, Omega-6, Trans Fat
-- Minerals: Sodium, Potassium, Calcium, Magnesium, Phosphorus, Iron, Zinc, Selenium, Iodine, Copper, Manganese, Chromium
-- Vitamins: A, D, E, K, C, B1 (Thiamin), B2 (Riboflavin), B3 (Niacin), B5, B6, B7 (Biotin), B9 (Folate), B12
-- Other: Choline, Cholesterol
-
-Convert amounts to appropriate units (g, mg, mcg, IU).
-""";
 
   // Search-specific addition
   static const String _searchAddition = """
@@ -84,6 +93,50 @@ Identify all the food items and ingredients mentioned, estimate reasonable porti
 and provide nutritional information for each.
 If the user mentions specific quantities, use those. Otherwise, estimate typical serving sizes.
 
+Your task:
+1. Identify ALL ingredients mentioned
+2. extract or estimate the quantity of each ingredient (convert to grams/ml)
+3. Provide nutritional values for EACH ingredient separately
+
+Convert all amounts to grams (g) or milliliters (ml).
+
+For each ingredient, provide:
+- Calories (kcal), Protein (g), Carbohydrates (g), Sugar (g)
+- Total Fat (g), Saturated Fat (g), Unsaturated Fat (g), Fiber (g)
+""";
+
+
+
+
+// max 22g of sugar per female, 37g sugar per man per day based on Dr. Robert Lustig.
+// max 10% of saturated fat of total calory intake
+// max 5g of sodium per 100g based on World Health Organization.
+// 
+
+  static const String _aiEvaluationPrompt_daysummarie = """
+  Provide a brief overall health evaluation for the current day.
+  For this, consider the following user information:
+  - age
+  - gender
+  - goal
+  - burned calories
+
+  Here are the consumptions for the current day:   
+  - total amount of calories
+  - total amount of protein
+  - total amount of carbohydrates
+  - total amount of fat
+  - total amount of saturated fat
+  - total amount of fiber
+  - total amount of sugar
+  - total amount of sodium
+  
+  Here are the rules for the evaluation:
+  - max 22g of sugar per female, 37g sugar per man per day
+  - max 10% of saturated fat of total calory intake
+  - max 2,300 milligrams (mg) sodium per day
+  - minimum 30g fibre per day for men, minimum 25g fibre per day for women
+  - minimum 0.8g protein per kg body weight per day. 
 """;
 
   // Composed prompts (multi-image addition is added dynamically in analyzeImages)
@@ -94,9 +147,9 @@ If the user mentions specific quantities, use those. Otherwise, estimate typical
       _basePrompt + _comprehensiveNutrientsAddition + _aiEvaluationPrompt;
 
   static String get _searchPrompt =>
-      _basePrompt + _searchAddition + _comprehensiveNutrientsAddition;
+      _basePrompt  + _comprehensiveNutrientsAddition + _searchAddition;
 
-  static String get _audioPrompt => _basePrompt + _comprehensiveNutrientsAddition + _aiEvaluationPrompt + _audioAddition;
+  static String get _audioPrompt => _audioAddition;
 
   /// Initialize the Gemini models.
   /// Firebase must be initialized before calling this.
@@ -132,6 +185,14 @@ If the user mentions specific quantities, use those. Otherwise, estimate typical
         responseSchema: jsonSchema_comprehensiveNutrition,
       ),
       systemInstruction: Content.text(_searchPrompt),
+    );
+
+    // Evaluation Model (health evaluation)
+    _evaluationModel = FirebaseAI.vertexAI(location: 'global').generativeModel(
+      model: 'gemini-2.5-flash',
+      generationConfig: GenerationConfig(
+      ),
+      systemInstruction: Content.text(_aiEvaluationPrompt_daysummarie),
     );
 
     _isInitialized = true;
@@ -259,4 +320,68 @@ If the user mentions specific quantities, use those. Otherwise, estimate typical
   static GenerativeModel? get analysisModelComprehensive =>
       _analysisModelComprehensive;
   static GenerativeModel? get searchModel => _searchModel;
+  static GenerativeModel? get evaluationModel => _evaluationModel;
+
+  // ============================================
+  // DAILY HEALTH EVALUATION
+  // ============================================
+
+  /// Evaluate daily health based on user profile and nutrition summary
+  /// Pre-calculates metrics so the AI doesn't have to do math
+  static Future<String?> evaluateDailyHealth({
+    required String gender,
+    required int age,
+    required double weightKg,
+    required String goal,
+    required double burnedCalories,
+    required double totalCalories,
+    required double totalProtein,
+    required double totalCarbs,
+    required double totalFat,
+    required double totalSaturatedFat,
+    required double totalFiber,
+    required double totalSugar,
+  }) async {
+    if (_evaluationModel == null) {
+      throw Exception('Evaluation model not initialized.');
+    }
+
+    // Pre-calculate values for the AI
+    final saturatedFatCalories = totalSaturatedFat * 9; // 9 kcal per gram of fat
+    final saturatedFatPercent = totalCalories > 0
+        ? (saturatedFatCalories / totalCalories * 100)
+        : 0.0;
+    final proteinPerKg = weightKg > 0 ? totalProtein / weightKg : 0.0;
+    final netCalories = totalCalories - burnedCalories;
+    
+    // Gender-specific recommendations
+    final maxSugar = gender == 'female' ? 22 : 37;
+    final minFiber = gender == 'female' ? 25 : 30;
+    final minProteinPerKg = 0.8;
+
+    // Build comprehensive prompt with all data
+    final prompt = """
+User Profile:
+- Gender: $gender
+- Age: $age years
+- Weight: ${weightKg.toStringAsFixed(1)} kg
+- Goal: $goal
+
+
+Today's Consumption:
+- Calories: ${totalCalories.round()} kcal
+- Protein: ${totalProtein.toStringAsFixed(1)}g (${proteinPerKg.toStringAsFixed(2)}g per kg body weight - target: ≥${minProteinPerKg}g/kg)
+- Carbohydrates: ${totalCarbs.toStringAsFixed(1)}g
+- Fat: ${totalFat.toStringAsFixed(1)}g
+- Saturated Fat: ${totalSaturatedFat.toStringAsFixed(1)}g (${saturatedFatPercent.toStringAsFixed(1)}% of calories - limit: <10%)
+- Fiber: ${totalFiber.toStringAsFixed(1)}g (target: ≥${minFiber}g)
+- Sugar: ${totalSugar.toStringAsFixed(1)}g (limit: <${maxSugar}g)
+
+Please provide a brief, direct health evaluation for this day. Highlight what was done well and give 1-2 actionable suggestions for improvement if needed.
+""";
+
+    final content = [Content.text(prompt)];
+    final response = await _evaluationModel!.generateContent(content);
+    return response.text;
+  }
 }

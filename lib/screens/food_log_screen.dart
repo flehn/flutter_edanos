@@ -4,6 +4,7 @@ import '../models/meal.dart';
 import '../services/meal_repository.dart';
 import '../services/firestore_service.dart';
 import '../services/health_service.dart';
+import '../gemini_service.dart';
 import 'meal_detail_screen.dart';
 
 /// Food Log Screen - Daily overview with weekly chart
@@ -17,80 +18,110 @@ class FoodLogScreen extends StatefulWidget {
 class FoodLogScreenState extends State<FoodLogScreen> {
   /// Public method to refresh data (called when tab becomes active)
   void refresh() {
-    _loadWeekData();
+    _onDaySelected(_selectedDate);
   }
-  int _currentWeek = 0;
-  List<DailySummary> _weekData = [];
+  DateTime? _firstMealDate;
+  final ScrollController _chartScrollController = ScrollController();
+  final Map<int, List<DailySummary>> _weekCache = {}; // Cache by week number (since epoch)
+  
   List<Meal> _selectedDayMeals = [];
-  int _selectedDayIndex = 6; // Sunday selected
   DateTime _selectedDate = DateTime.now();
   bool _isLoading = true;
+  bool _isChartReady = false;
   
   // Health data
   double _burnedCalories = 0;
   Map<DateTime, double> _weeklyBurnedCalories = {};
 
+  // AI Daily Evaluation
+  String? _dailyEvaluation;
+  bool _isEvaluationLoading = false;
+  bool _isEvaluationExpanded = false;
+  UserSettings? _userSettings;
+
   @override
   void initState() {
     super.initState();
-    _initializeWeek();
+    _initializeHistory();
   }
 
-  void _initializeWeek() {
+  @override
+  void dispose() {
+    _chartScrollController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _initializeHistory() async {
+    // 1. Load today's data immediately
     final now = DateTime.now();
-    _currentWeek = _getWeekNumber(now);
-    _selectedDayIndex = now.weekday - 1; // 0 = Monday
-    _selectedDate = now;
-    _loadWeekData();
+    _selectedDate = DateTime(now.year, now.month, now.day);
+    await _loadWeekDataForDate(now);
+    
+    // 2. Fetch the start date of history
+    final firstDate = await MealRepository.getFirstMealDate();
+    
+    if (mounted) {
+      setState(() {
+        _firstMealDate = firstDate ?? now;
+        _isChartReady = true;
+      });
+      
+      // Scroll to end (today) after frame build
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_chartScrollController.hasClients) {
+          _chartScrollController.jumpTo(_chartScrollController.position.maxScrollExtent);
+        }
+      });
+    }
   }
 
-  int _getWeekNumber(DateTime date) {
-    final firstDayOfYear = DateTime(date.year, 1, 1);
-    final daysDiff = date.difference(firstDayOfYear).inDays;
-    return ((daysDiff + firstDayOfYear.weekday) / 7).ceil();
+  int _getWeekKey(DateTime date) {
+    // Calculate week number since epoch to use as cache key
+    // Using Monday as start of week
+    final daysSinceEpoch = date.difference(DateTime(1970, 1, 1)).inDays;
+    final mondayOffset = (DateTime(1970, 1, 1).weekday - 1);
+    return ((daysSinceEpoch + mondayOffset) / 7).floor();
   }
 
-  DateTime _getWeekStart(int weekNumber, int year) {
-    final jan1 = DateTime(year, 1, 1);
-    final daysToMonday = (jan1.weekday - 1) % 7;
-    final week1Monday = jan1.subtract(Duration(days: daysToMonday));
-    return week1Monday.add(Duration(days: (weekNumber - 1) * 7));
+  DateTime _getWeekStartFromKey(int weekKey) {
+    // Reverse of _getWeekKey
+    final mondayOffset = (DateTime(1970, 1, 1).weekday - 1);
+    final daysSinceEpoch = (weekKey * 7) - mondayOffset;
+    return DateTime(1970, 1, 1).add(Duration(days: daysSinceEpoch));
   }
 
-  Future<void> _loadWeekData() async {
-    setState(() => _isLoading = true);
+  Future<void> _loadWeekDataForDate(DateTime date) async {
+    final weekKey = _getWeekKey(date);
+    
+    // Return early if already loaded
+    if (_weekCache.containsKey(weekKey)) {
+      if (!_isLoading) return; // Only verify we're not stuck in loading state
+    }
+
+    // Only set loading if we don't have this week's data
+    if (!_weekCache.containsKey(weekKey)) {
+      setState(() => _isLoading = true);
+    }
     
     try {
-      final now = DateTime.now();
-      final weekStart = _getWeekStart(_currentWeek, now.year);
+      final weekStart = _getWeekStartFromKey(weekKey);
       
       // Load weekly summaries
       final summaries = await MealRepository.getWeeklySummaries(weekStart);
       
-      // Create a full week of summaries (fill in empty days)
-      final fullWeek = <DailySummary>[];
-      for (var i = 0; i < 7; i++) {
-        final date = weekStart.add(Duration(days: i));
-        final existing = summaries.firstWhere(
-          (s) => s.date.day == date.day && s.date.month == date.month,
-          orElse: () => DailySummary.empty(date),
-        );
-        fullWeek.add(existing);
-      }
-      
       setState(() {
-        _weekData = fullWeek;
+        _weekCache[weekKey] = summaries;
+        _isLoading = false;
       });
       
-      // Load meals for selected day
-      await _loadMealsForSelectedDay();
-      
-      // Load burned calories from health data (if available)
-      await _loadHealthData(weekStart);
+      // If this is the currently selected week, refresh meal details
+      if (_getWeekKey(_selectedDate) == weekKey) {
+        await _loadMealsForSelectedDay();
+        await _loadHealthData(weekStart);
+      }
     } catch (e) {
       debugPrint('Error loading week data: $e');
-    } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -139,30 +170,20 @@ class FoodLogScreenState extends State<FoodLogScreen> {
     }
   }
 
-  void _onDaySelected(int index) {
-    final now = DateTime.now();
-    final weekStart = _getWeekStart(_currentWeek, now.year);
-    final selectedDate = weekStart.add(Duration(days: index));
-    
+  void _onDaySelected(DateTime date) {
     setState(() {
-      _selectedDayIndex = index;
-      _selectedDate = selectedDate;
+      _selectedDate = date;
     });
     
+    // Ensure data is loaded for this date (if user tapped a day in a week not fully loaded)
+    _loadWeekDataForDate(date);
     _loadMealsForSelectedDay();
-  }
-
-  void _changeWeek(int delta) {
-    setState(() {
-      _currentWeek += delta;
-    });
-    _loadWeekData();
   }
 
   @override
   Widget build(BuildContext context) {
-    // Handle loading state or empty data
-    if (_isLoading && _weekData.isEmpty) {
+    // Handle loading state
+    if (!_isChartReady) {
       return const Scaffold(
         backgroundColor: AppTheme.backgroundDark,
         body: Center(
@@ -172,200 +193,178 @@ class FoodLogScreenState extends State<FoodLogScreen> {
     }
     
     // Safely get selected day data
-    final selectedDay = _weekData.isNotEmpty && _selectedDayIndex < _weekData.length
-        ? _weekData[_selectedDayIndex]
-        : DailySummary.empty(DateTime.now());
+    final selectedDay = _getSummaryForDate(_selectedDate);
     
     final totalConsumed = selectedDay.totalCalories.round();
-    final burned = _burnedCalories.round(); // From Apple Health / Health Connect
+    final burned = _burnedCalories.round();
     final netCalories = totalConsumed - burned;
+
+    // Calculate chart range
+    final now = DateTime.now();
+    // Default to at least 30 days of history or from first meal
+    final start = _firstMealDate ?? now.subtract(const Duration(days: 30));
+    final totalDays = now.difference(start).inDays + 1; // +1 to include today
 
     return Scaffold(
       backgroundColor: AppTheme.backgroundDark,
       body: SafeArea(
-        child: Column(
-          children: [
-            const SizedBox(height: 16),
-
-            // Calories summary
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                children: [
-                  // Calories Today label
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
-                      Text(
-                        'Calories',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.textPrimary,
-                        ),
-                      ),
-                      Text(
-                        'Today',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.textPrimary,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const Spacer(),
-                  // Stats
-                  _buildCalorieBox(
-                    'Consumed',
-                    totalConsumed,
-                    AppTheme.calorieOrange,
-                  ),
-                  const SizedBox(width: 12),
-                  _buildCalorieBox('Burned', burned, AppTheme.positiveColor),
-                  const SizedBox(width: 12),
-                  _buildCalorieBox(
-                    'Net Calories',
-                    netCalories,
-                    netCalories < 0
-                        ? AppTheme.negativeColor
-                        : AppTheme.positiveColor,
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 16),
-
-            // Macros summary
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _buildMacroDot(
-                    AppTheme.proteinColor,
-                    'Protein',
-                    selectedDay.totalProtein.round(),
-                  ),
-                  const SizedBox(width: 24),
-                  _buildMacroDot(
-                    AppTheme.carbsColor,
-                    'Carbs',
-                    selectedDay.totalCarbs.round(),
-                  ),
-                  const SizedBox(width: 24),
-                  _buildMacroDot(AppTheme.fatColor, 'Fat', selectedDay.totalFat.round()),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 24),
-
-            // Weekly chart
-            Container(
-              height: 160,
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: _weekData.isEmpty
-                  ? const Center(child: Text('No data', style: TextStyle(color: AppTheme.textTertiary)))
-                  : Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: List.generate(_weekData.length, (index) {
-                        return _buildDayBarFromSummary(index, _weekData[index]);
-                      }),
-                    ),
-            ),
-
-            // Week navigation
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  IconButton(
-                    icon: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: AppTheme.textTertiary),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Icon(
-                        Icons.chevron_left,
-                        color: AppTheme.textSecondary,
-                      ),
-                    ),
-                    onPressed: () => _changeWeek(-1),
-                  ),
-                  const SizedBox(width: 16),
-                  Text(
-                    'WEEK: $_currentWeek',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: AppTheme.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  IconButton(
-                    icon: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: AppTheme.textTertiary),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Icon(
-                        Icons.chevron_right,
-                        color: AppTheme.textSecondary,
-                      ),
-                    ),
-                    onPressed: () => _changeWeek(1),
-                  ),
-                ],
-              ),
-            ),
-
-            // Date label
-            Text(
-              _formatDateLabel(_selectedDate),
-              style: TextStyle(fontSize: 14, color: AppTheme.textTertiary),
-            ),
-
-            const SizedBox(height: 16),
-
-            // Meals list
-            Expanded(
-              child: _selectedDayMeals.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.restaurant_menu,
-                            size: 64,
-                            color: AppTheme.textTertiary.withOpacity(0.5),
-                          ),
-                          const SizedBox(height: 16),
+         child: CustomScrollView(
+           slivers: [
+             const SliverToBoxAdapter(child: SizedBox(height: 16)),
+             
+             // 1. Calories Summary
+             SliverToBoxAdapter(
+               child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: const [
                           Text(
-                            'No meals logged',
+                            'Calories',
                             style: TextStyle(
-                              color: AppTheme.textTertiary,
-                              fontSize: 16,
+                              fontSize: 20,
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.textPrimary,
+                            ),
+                          ),
+                          Text(
+                            'Today',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.textPrimary,
                             ),
                           ),
                         ],
                       ),
-                    )
-                  : ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: _selectedDayMeals.length,
-                      itemBuilder: (context, index) {
-                        return _buildMealCardFromMeal(_selectedDayMeals[index]);
-                      },
-                    ),
-            ),
-          ],
-        ),
+                      const Spacer(),
+                      _buildCalorieBox('Consumed', totalConsumed, AppTheme.calorieOrange),
+                      const SizedBox(width: 12),
+                      _buildCalorieBox('Burned', burned, AppTheme.positiveColor),
+                      const SizedBox(width: 12),
+                      _buildCalorieBox(
+                        'Net Calories',
+                        netCalories,
+                        netCalories < 0 ? AppTheme.negativeColor : AppTheme.positiveColor,
+                      ),
+                    ],
+                  ),
+               ),
+             ),
+             
+             const SliverToBoxAdapter(child: SizedBox(height: 16)),
+
+             // 2. Macros Summary
+             SliverToBoxAdapter(
+               child: Padding(
+                 padding: const EdgeInsets.symmetric(horizontal: 16),
+                 child: Row(
+                   mainAxisAlignment: MainAxisAlignment.center,
+                   children: [
+                     _buildMacroDot(AppTheme.proteinColor, 'Protein', selectedDay.totalProtein.round()),
+                     const SizedBox(width: 24),
+                     _buildMacroDot(AppTheme.carbsColor, 'Carbs', selectedDay.totalCarbs.round()),
+                     const SizedBox(width: 24),
+                     _buildMacroDot(AppTheme.fatColor, 'Fat', selectedDay.totalFat.round()),
+                   ],
+                 ),
+               ),
+             ),
+             
+             const SliverToBoxAdapter(child: SizedBox(height: 24)),
+
+             // 3. Scrollable History Chart
+             SliverToBoxAdapter(
+               child: SizedBox(
+                 height: 140, // Height for chart bars + logic
+                 child: Scrollbar(
+                   controller: _chartScrollController,
+                   thumbVisibility: true,
+                   child: ListView.builder(
+                     controller: _chartScrollController,
+                     scrollDirection: Axis.horizontal,
+                     // We want the list to end at "Today". 
+                     // Since ListView builds 0 -> N, 0 is the oldest date.
+                     itemCount: totalDays, 
+                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                     itemBuilder: (context, index) {
+                       final date = start.add(Duration(days: index));
+                       
+                       // Trigger lazy load for this date's week
+                       _loadWeekDataForDate(date);
+                       
+                       // Retrieve data (might be loading or empty)
+                       final summary = _getSummaryForDate(date);
+                       
+                       return _buildDayBarFromSummary(date, summary);
+                     },
+                   ),
+                 ),
+               ),
+             ),
+
+             const SliverToBoxAdapter(child: SizedBox(height: 16)),
+
+             // 4. Date Label
+             SliverToBoxAdapter(
+               child: Center(
+                 child: Text(
+                    _formatDateLabel(_selectedDate),
+                    style: TextStyle(fontSize: 14, color: AppTheme.textTertiary),
+                 ),
+               ),
+             ),
+             
+             const SliverToBoxAdapter(child: SizedBox(height: 16)),
+
+             // 5. AI Evaluation (Now scrollable part of the page)
+             SliverToBoxAdapter(
+               child: _buildDailyEvaluationSection(),
+             ),
+             
+             // 6. Meals List (Using SliverList)
+             _selectedDayMeals.isEmpty
+                 ? SliverFillRemaining(
+                     hasScrollBody: false,
+                     child: Center(
+                       child: Column(
+                         mainAxisAlignment: MainAxisAlignment.center,
+                         children: [
+                           Icon(
+                             Icons.restaurant_menu,
+                             size: 64,
+                             color: AppTheme.textTertiary.withOpacity(0.5),
+                           ),
+                           const SizedBox(height: 16),
+                           Text(
+                             'No meals logged',
+                             style: TextStyle(
+                               color: AppTheme.textTertiary,
+                               fontSize: 16,
+                             ),
+                           ),
+                         ],
+                       ),
+                     ),
+                   )
+                 : SliverList(
+                     delegate: SliverChildBuilderDelegate(
+                       (context, index) {
+                         return Padding(
+                           padding: const EdgeInsets.symmetric(horizontal: 16),
+                           child: _buildMealCardFromMeal(_selectedDayMeals[index]),
+                         );
+                       },
+                       childCount: _selectedDayMeals.length,
+                     ),
+                   ),
+                   
+              // Bottom padding
+              const SliverToBoxAdapter(child: SizedBox(height: 80)),
+           ],
+         ),
       ),
     );
   }
@@ -403,6 +402,7 @@ class FoodLogScreenState extends State<FoodLogScreen> {
   }
 
   Widget _buildMacroDot(Color color, String label, int value) {
+    final displayValue = value < 0 ? 0 : value;
     return Row(
       children: [
         Container(
@@ -415,11 +415,208 @@ class FoodLogScreenState extends State<FoodLogScreen> {
         ),
         const SizedBox(width: 6),
         Text(
-          '$label $value',
+          '$label $displayValue',
           style: const TextStyle(fontSize: 14, color: AppTheme.textSecondary),
         ),
       ],
     );
+  }
+
+  /// Check if selected date is today
+  bool _isToday() {
+    final now = DateTime.now();
+    return _selectedDate.year == now.year &&
+        _selectedDate.month == now.month &&
+        _selectedDate.day == now.day;
+  }
+
+  bool _isAfter6PM() {
+    return DateTime.now().hour >= 14;
+  }
+
+  /// Build the daily AI evaluation section
+  Widget _buildDailyEvaluationSection() {
+    // Only show for today
+    if (!_isToday()) {
+      return const SizedBox.shrink();
+    }
+
+    final canEvaluate = _isAfter6PM() && _selectedDayMeals.isNotEmpty;
+    final hasMeals = _selectedDayMeals.isNotEmpty;
+
+    // Build status message
+    String statusMessage;
+    if (_dailyEvaluation != null) {
+      statusMessage = 'Tap to ${_isEvaluationExpanded ? 'collapse' : 'expand'}';
+    } else if (!hasMeals) {
+      statusMessage = 'Log a meal to enable evaluation';
+    } else if (!_isAfter6PM()) {
+      statusMessage = 'Available after 18:00';
+    } else {
+      statusMessage = 'Ready to evaluate';
+    }
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: [
+          // Header (always visible)
+          InkWell(
+            onTap: _dailyEvaluation != null
+                ? () => setState(() => _isEvaluationExpanded = !_isEvaluationExpanded)
+                : null,
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.info_outline,
+                    color: canEvaluate ? AppTheme.primaryBlue : AppTheme.textTertiary,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Daily AI Evaluation',
+                          style: TextStyle(
+                            color: canEvaluate ? AppTheme.textPrimary : AppTheme.textSecondary,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          statusMessage,
+                          style: TextStyle(
+                            color: AppTheme.textTertiary,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (_dailyEvaluation != null)
+                    Icon(
+                      _isEvaluationExpanded
+                          ? Icons.expand_less
+                          : Icons.expand_more,
+                      color: AppTheme.textTertiary,
+                    )
+                  else if (_isEvaluationLoading)
+                    const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: AppTheme.primaryBlue,
+                      ),
+                    )
+                  else
+                    ElevatedButton(
+                      onPressed: canEvaluate ? _runDailyEvaluation : null,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: canEvaluate ? AppTheme.primaryBlue : AppTheme.textTertiary.withOpacity(0.3),
+                        foregroundColor: canEvaluate ? Colors.white : AppTheme.textTertiary,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                      ),
+                      child: const Text(
+                        'Get Evaluation',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          // Expanded content
+          if (_dailyEvaluation != null && _isEvaluationExpanded)
+            Container(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Divider(color: AppTheme.textTertiary),
+                  const SizedBox(height: 8),
+                  Text(
+                    _dailyEvaluation!,
+                    style: TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontSize: 14,
+                      height: 1.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Run the daily AI evaluation
+  Future<void> _runDailyEvaluation() async {
+    if (_isEvaluationLoading) return;
+
+    setState(() => _isEvaluationLoading = true);
+
+    try {
+      // Load user settings if not already loaded
+      _userSettings ??= await MealRepository.getUserSettings();
+      final settings = _userSettings!;
+
+      // Get today's summary
+      final selectedDay = _weekData.isNotEmpty && _selectedDayIndex < _weekData.length
+          ? _weekData[_selectedDayIndex]
+          : DailySummary.empty(DateTime.now());
+
+      // Determine user goal
+      final goals = await MealRepository.getUserGoals();
+      final goalDescription = goals.isGainMode ? 'gain weight/muscle' : 'lose weight/maintain';
+
+      // Call evaluation
+      final evaluation = await GeminiService.evaluateDailyHealth(
+        gender: settings.gender,
+        age: settings.age,
+        weightKg: settings.weight,
+        goal: goalDescription,
+        burnedCalories: _burnedCalories,
+        totalCalories: selectedDay.totalCalories,
+        totalProtein: selectedDay.totalProtein,
+        totalCarbs: selectedDay.totalCarbs,
+        totalFat: selectedDay.totalFat,
+        totalSaturatedFat: selectedDay.totalSaturatedFat,
+        totalFiber: selectedDay.totalFiber,
+        totalSugar: selectedDay.totalSugar,
+      );
+
+      if (mounted) {
+        setState(() {
+          _dailyEvaluation = evaluation;
+          _isEvaluationExpanded = true;
+          _isEvaluationLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error running daily evaluation: $e');
+      if (mounted) {
+        setState(() => _isEvaluationLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to get evaluation: $e'),
+            backgroundColor: AppTheme.negativeColor,
+          ),
+        );
+      }
+    }
   }
 
   String _formatDateLabel(DateTime date) {
@@ -433,25 +630,59 @@ class FoodLogScreenState extends State<FoodLogScreen> {
     return days[index];
   }
 
-  Widget _buildDayBarFromSummary(int index, DailySummary day) {
-    final isSelected = index == _selectedDayIndex;
+  DailySummary _getSummaryForDate(DateTime date) {
+    // Check if we have this week loaded
+    final weekKey = _getWeekKey(date);
+    final weekSummaries = _weekCache[weekKey];
+    
+    if (weekSummaries == null) {
+      return DailySummary.empty(date);
+    }
+    
+    // Find the summary for this specific date
+    return weekSummaries.firstWhere(
+      (s) => s.date.day == date.day && s.date.month == date.month && s.date.year == date.year,
+      orElse: () => DailySummary.empty(date),
+    );
+  }
+
+  Widget _buildDayBarFromSummary(DateTime date, DailySummary day) {
+    final isSelected = date.year == _selectedDate.year &&
+        date.month == _selectedDate.month &&
+        date.day == _selectedDate.day;
+            
     final calories = day.totalCalories.round();
     final protein = day.totalProtein.round();
     final carbs = day.totalCarbs.round();
     final fat = day.totalFat.round();
     
-    final maxCalories = _weekData
-        .map((d) => d.totalCalories.round())
-        .reduce((a, b) => a > b ? a : b);
+    // Calculate max calories based on loaded summaries for visible context or fixed value
+    // For simplicity and stability, we can use a fixed reasonable max or dynamic based on user goal
+    // Or we can scan currently loaded weeks. Let's use a dynamic approach based on loaded data.
+    double maxCalories = 2500; // Default baseline
+    
+    // If we have data, try to find a better max, but scoped to local context if possible
+    // For now, let's stick to a reasonable static max or user goal to avoid jumpy bars
+    if (_userSettings != null) {
+       maxCalories = _userSettings!.dailyCalories.toDouble();
+    }
+    // Prevent div by zero
+    if (maxCalories < 1000) maxCalories = 2000;
+    
     final barHeight = maxCalories > 0
-        ? (calories / maxCalories) * 100
+        ? (calories / maxCalories) * 80 // Scale to 80px max height
         : 0.0;
+    // Cap height
+    final clampedHeight = barHeight > 100 ? 100.0 : barHeight;
 
     return GestureDetector(
-      onTap: () => _onDaySelected(index),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
+      onTap: () => _onDaySelected(date),
+      child: Container(
+        width: 30, // Fixed width for scrollable list
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
           // Stacked bar or three dots for empty days
           if (calories > 0)
             Container(
@@ -531,9 +762,9 @@ class FoodLogScreenState extends State<FoodLogScreen> {
           const SizedBox(height: 8),
           // Day label
           Text(
-            _getDayName(index),
+            _getDayName(date.weekday - 1), // 0-based index for Mon-Sun
             style: TextStyle(
-              fontSize: 12,
+              fontSize: 10,
               fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
               color: isSelected ? AppTheme.primaryBlue : AppTheme.textSecondary,
             ),
@@ -689,6 +920,7 @@ class FoodLogScreenState extends State<FoodLogScreen> {
           totalFat: currentSummary.totalFat - meal.totalFat,
           totalFiber: currentSummary.totalFiber - meal.totalFiber,
           totalSugar: currentSummary.totalSugar - meal.totalSugar,
+          totalSaturatedFat: currentSummary.totalSaturatedFat - meal.totalSaturatedFat,
         );
       }
     });
@@ -733,6 +965,7 @@ class FoodLogScreenState extends State<FoodLogScreen> {
               totalFat: currentSummary.totalFat + deletedMeal.totalFat,
               totalFiber: currentSummary.totalFiber + deletedMeal.totalFiber,
               totalSugar: currentSummary.totalSugar + deletedMeal.totalSugar,
+              totalSaturatedFat: currentSummary.totalSaturatedFat + deletedMeal.totalSaturatedFat,
             );
           }
         });

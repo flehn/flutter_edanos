@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'dart:convert';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../gemini_service.dart';
@@ -41,6 +42,10 @@ class AddFoodScreenState extends State<AddFoodScreen> {
   // Multi-image capture
   List<Uint8List> _capturedImages = [];
   bool _isInCaptureMode = false;
+
+  // Recording timer for 1-minute limit
+  Timer? _recordingTimer;
+  int _recordingSeconds = 0;
 
   @override
   void initState() {
@@ -301,6 +306,19 @@ class AddFoodScreenState extends State<AddFoodScreen> {
   }
 
   Future<void> _takePhoto() async {
+    // Check 10 photo limit
+    if (_capturedImages.length >= 10) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Maximum 10 images allowed'),
+            backgroundColor: AppTheme.negativeColor,
+          ),
+        );
+      }
+      return;
+    }
+
     try {
       final imageBytes = await ImagePickerService.takePhoto();
       if (imageBytes != null) {
@@ -467,20 +485,38 @@ class AddFoodScreenState extends State<AddFoodScreen> {
         return;
       }
 
-      setState(() => _isRecording = true);
+      setState(() {
+        _isRecording = true;
+        _recordingSeconds = 0;
+      });
 
-      // Show recording indicator
+      // Start 1-minute timer
+      _recordingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        if (!mounted) {
+          timer.cancel();
+          return;
+        }
+        setState(() {
+          _recordingSeconds++;
+        });
+        // Auto-stop after 60 seconds
+        if (_recordingSeconds >= 60) {
+          _stopRecordingAndAnalyze();
+        }
+      });
+
+      // Show recording indicator with countdown
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Row(
+            content: Row(
               children: [
-                Icon(Icons.mic, color: Colors.white),
-                SizedBox(width: 12),
-                Text('Recording... Tap again to stop'),
+                const Icon(Icons.mic, color: Colors.white),
+                const SizedBox(width: 12),
+                Text('Recording... (max 60s) Tap again to stop'),
               ],
             ),
-            duration: const Duration(minutes: 5),
+            duration: const Duration(minutes: 1),
             backgroundColor: Colors.red,
             action: SnackBarAction(
               label: 'Stop',
@@ -492,6 +528,8 @@ class AddFoodScreenState extends State<AddFoodScreen> {
       }
     } catch (e) {
       setState(() => _isRecording = false);
+      _recordingTimer?.cancel();
+      _recordingTimer = null;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -506,10 +544,15 @@ class AddFoodScreenState extends State<AddFoodScreen> {
   Future<void> _stopRecordingAndAnalyze() async {
     if (!_isRecording) return;
 
+    // Cancel the recording timer
+    _recordingTimer?.cancel();
+    _recordingTimer = null;
+
     setState(() {
       _isRecording = false;
       _isAnalyzing = true;
       _errorMessage = null;
+      _recordingSeconds = 0;
     });
 
     // Hide the recording snackbar
@@ -811,10 +854,10 @@ class AddFoodScreenState extends State<AddFoodScreen> {
 
   Widget _buildSearchBar() {
     return Container(
-      decoration: BoxDecoration(
-        color: Colors.black,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.3), width: 1),
+      decoration: const BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: Colors.white, width: 1),
+        ),
       ),
       child: TextField(
         controller: _searchController,
@@ -842,6 +885,9 @@ class AddFoodScreenState extends State<AddFoodScreen> {
                   onPressed: _clearSearch,
                 )
               : null,
+          filled: false,
+          fillColor: Colors.transparent,
+          hoverColor: Colors.transparent,
           border: InputBorder.none,
           contentPadding: const EdgeInsets.symmetric(
             horizontal: 16,
@@ -1220,14 +1266,11 @@ class AddFoodScreenState extends State<AddFoodScreen> {
           width: double.infinity,
           padding: const EdgeInsets.symmetric(vertical: 18),
           decoration: BoxDecoration(
-            border: Border.all(
-              color: isRecording 
-                  ? Colors.red 
-                  : AppTheme.textTertiary.withOpacity(0.3),
-              width: isRecording ? 2 : 1,
-            ),
             borderRadius: BorderRadius.circular(12),
             color: isRecording ? Colors.red.withOpacity(0.1) : null,
+            border: isRecording
+                ? Border.all(color: Colors.red, width: 2)
+                : null,
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,

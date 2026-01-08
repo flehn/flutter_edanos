@@ -135,6 +135,17 @@ class FirestoreService {
     return snapshot.docs.map((doc) => Meal.fromFirestore(doc.data())).toList();
   }
 
+  /// Get the date of the first logged meal
+  static Future<DateTime?> getFirstMealDate() async {
+    final snapshot = await _mealsRef
+        .orderBy('scannedAt', descending: false)
+        .limit(1)
+        .get();
+    
+    if (snapshot.docs.isEmpty) return null;
+    return Meal.fromFirestore(snapshot.docs.first.data()).scannedAt;
+  }
+
   /// Stream of meals for today (real-time updates)
   static Stream<List<Meal>> streamMealsForToday() {
     final today = DateTime.now();
@@ -288,6 +299,51 @@ class FirestoreService {
         .doc(itemId)
         .update({'usageCount': FieldValue.increment(1)});
   }
+
+  // ============================================
+  // DATA MANAGEMENT
+  // ============================================
+
+  /// Delete all user meals
+  static Future<void> deleteAllUserMeals() async {
+    final snapshot = await _mealsRef.get();
+    final batch = _db.batch();
+    for (final doc in snapshot.docs) {
+      batch.delete(doc.reference);
+    }
+    await batch.commit();
+  }
+
+  /// Delete all quick add items
+  static Future<void> deleteAllQuickAddItems() async {
+    final snapshot = await _db
+        .collection('users')
+        .doc(_userId)
+        .collection('quickAdd')
+        .get();
+    final batch = _db.batch();
+    for (final doc in snapshot.docs) {
+      batch.delete(doc.reference);
+    }
+    await batch.commit();
+  }
+
+  /// Delete all user data (meals, quick add items, settings)
+  static Future<void> deleteAllUserData() async {
+    await deleteAllUserMeals();
+    await deleteAllQuickAddItems();
+    // Optionally delete settings as well
+    await _goalsRef.delete();
+    await _settingsRef.delete();
+  }
+
+  /// Get all meals for export
+  static Future<List<Meal>> getAllMeals() async {
+    final snapshot = await _mealsRef
+        .orderBy('scannedAt', descending: true)
+        .get();
+    return snapshot.docs.map((doc) => Meal.fromFirestore(doc.data())).toList();
+  }
 }
 
 // ============================================
@@ -304,6 +360,7 @@ class DailySummary {
   final double totalFat;
   final double totalFiber;
   final double totalSugar;
+  final double totalSaturatedFat;
 
   DailySummary({
     required this.date,
@@ -314,6 +371,7 @@ class DailySummary {
     required this.totalFat,
     required this.totalFiber,
     required this.totalSugar,
+    required this.totalSaturatedFat,
   });
 
   factory DailySummary.fromMeals(List<Meal> meals, DateTime date) {
@@ -326,6 +384,7 @@ class DailySummary {
       totalFat: meals.fold(0, (sum, meal) => sum + meal.totalFat),
       totalFiber: meals.fold(0, (sum, meal) => sum + meal.totalFiber),
       totalSugar: meals.fold(0, (sum, meal) => sum + meal.totalSugar),
+      totalSaturatedFat: meals.fold(0, (sum, meal) => sum + meal.totalSaturatedFat),
     );
   }
 
@@ -340,6 +399,7 @@ class DailySummary {
       totalFat: 0,
       totalFiber: 0,
       totalSugar: 0,
+      totalSaturatedFat: 0,
     );
   }
 }
@@ -516,6 +576,9 @@ class UserSettings {
   final String units; // 'Metric' or 'Imperial'
   final List<int> reminderTimesMinutes; // Minutes from midnight for each reminder
   final DateTime? lastUpdated;
+  final String gender; // 'male' or 'female'
+  final int age; // User's age in years
+  final double weight; // Body weight in kg
 
   UserSettings({
     required this.notificationsEnabled,
@@ -525,6 +588,9 @@ class UserSettings {
     required this.units,
     required this.reminderTimesMinutes,
     this.lastUpdated,
+    required this.gender,
+    required this.age,
+    required this.weight,
   });
 
   factory UserSettings.defaults() {
@@ -536,6 +602,9 @@ class UserSettings {
       units: 'Metric',
       reminderTimesMinutes: [480, 750, 1110], // 8:00, 12:30, 18:30 in minutes
       lastUpdated: DateTime.now(),
+      gender: 'male',
+      age: 30,
+      weight: 70.0,
     );
   }
 
@@ -553,6 +622,9 @@ class UserSettings {
       lastUpdated: data['lastUpdated'] != null
           ? DateTime.parse(data['lastUpdated'] as String)
           : null,
+      gender: data['gender'] ?? 'male',
+      age: data['age'] ?? 30,
+      weight: (data['weight'] as num?)?.toDouble() ?? 70.0,
     );
   }
 
@@ -565,6 +637,9 @@ class UserSettings {
       'units': units,
       'reminderTimesMinutes': reminderTimesMinutes,
       'lastUpdated': DateTime.now().toIso8601String(),
+      'gender': gender,
+      'age': age,
+      'weight': weight,
     };
   }
 
@@ -575,6 +650,9 @@ class UserSettings {
     bool? syncToHealth,
     String? units,
     List<int>? reminderTimesMinutes,
+    String? gender,
+    int? age,
+    double? weight,
   }) {
     return UserSettings(
       notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
@@ -584,6 +662,9 @@ class UserSettings {
       units: units ?? this.units,
       reminderTimesMinutes: reminderTimesMinutes ?? this.reminderTimesMinutes,
       lastUpdated: DateTime.now(),
+      gender: gender ?? this.gender,
+      age: age ?? this.age,
+      weight: weight ?? this.weight,
     );
   }
 

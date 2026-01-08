@@ -31,7 +31,7 @@ class _MealDetailScreenState extends State<MealDetailScreen> {
   bool _dateChanged = false;
   UserGoals? _userGoals;
   bool _isLoadingGoals = false;
-  String _selectedTab = 'ai';
+  String _selectedTab = 'ingredients';
   final TextEditingController _ingredientSearchController =
       TextEditingController();
   bool _isAddingIngredient = false;
@@ -1009,16 +1009,16 @@ class _MealDetailScreenState extends State<MealDetailScreen> {
                 decoration: InputDecoration(
                   hintText: 'Search for ingredient ...',
                   hintStyle: TextStyle(color: AppTheme.textTertiary),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
+                  filled: false,
+                  fillColor: Colors.transparent,
+                  hoverColor: Colors.transparent,
+                  border: UnderlineInputBorder(
                     borderSide: BorderSide(color: AppTheme.textTertiary.withValues(alpha: 0.3)),
                   ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
+                  enabledBorder: UnderlineInputBorder(
                     borderSide: BorderSide(color: AppTheme.textTertiary.withValues(alpha: 0.3)),
                   ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
+                  focusedBorder: UnderlineInputBorder(
                     borderSide: BorderSide(color: AppTheme.primaryBlue),
                   ),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
