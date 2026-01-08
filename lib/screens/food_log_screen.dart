@@ -313,7 +313,13 @@ class FoodLogScreenState extends State<FoodLogScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     itemBuilder: (context, index) {
                       final date = _getDateForIndex(index);
-                      _loadWeekDataForDate(date); // Lazy load
+                      // Defer data loading to avoid setState during build
+                      final weekKey = _getWeekKey(date);
+                      if (!_weekCache.containsKey(weekKey)) {
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          _loadWeekDataForDate(date);
+                        });
+                      }
                       final summary = _getSummaryForDate(date);
                       return _buildDayBarFromSummary(date, summary);
                     },
