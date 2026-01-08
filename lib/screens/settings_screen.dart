@@ -364,28 +364,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 subtitle: 'Signed in',
                 onTap: () {},
               ),
+              // Account management options
+              _buildSettingsTile(
+                icon: Icons.lock_outline,
+                title: 'Change Password',
+                subtitle: 'Update your password',
+                onTap: _showChangePasswordDialog,
+              ),
+              _buildSettingsTile(
+                icon: Icons.delete_forever_outlined,
+                title: 'Delete Account',
+                subtitle: 'Permanently remove your account',
+                textColor: AppTheme.negativeColor,
+                onTap: _showDeleteAccountDialog,
+              ),
             ],
-            _buildSettingsTile(
-              icon: Icons.security_outlined,
-              title: 'Privacy',
-              subtitle: 'Manage your data',
-              onTap: () {},
-            ),
+
 
             const SizedBox(height: 24),
 
             // Preferences section
             _buildSectionHeader('Preferences'),
-            _buildSwitchTile(
-              icon: Icons.notifications_outlined,
-              title: 'Notifications',
-              subtitle: 'Receive push notifications',
-              value: _notifications,
-              onChanged: (value) {
-                setState(() => _notifications = value);
-                _saveSettingsToFirebase();
-              },
-            ),
+
             _buildSwitchTile(
               icon: Icons.schedule_outlined,
               title: 'Meal Reminders',
@@ -586,12 +586,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _saveSettingsToFirebase();
               },
             ),
-            _buildSettingsTile(
-              icon: Icons.history_outlined,
-              title: 'Analysis History',
-              subtitle: 'View past scans and accuracy',
-              onTap: () {},
-            ),
+
 
             const SizedBox(height: 24),
 
@@ -1129,6 +1124,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
               style: const TextStyle(color: AppTheme.textPrimary),
               obscureText: true,
             ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  _showForgotPasswordDialog();
+                },
+                style: TextButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: const Text(
+                  'Forgot password?',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
+            ),
           ],
         ),
         actions: [
@@ -1307,6 +1321,397 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: const Text(
               'Create Account',
               style: TextStyle(color: AppTheme.primaryBlue),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Show forgot password dialog - sends reset email
+  void _showForgotPasswordDialog() {
+    final emailController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppTheme.surfaceDark,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          'Reset Password',
+          style: TextStyle(color: AppTheme.textPrimary),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Enter your email address and we\'ll send you a link to reset your password.',
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: emailController,
+              decoration: InputDecoration(
+                hintText: 'Email',
+                hintStyle: TextStyle(color: AppTheme.textTertiary),
+                filled: true,
+                fillColor: AppTheme.cardDark,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+              style: const TextStyle(color: AppTheme.textPrimary),
+              keyboardType: TextInputType.emailAddress,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              final email = emailController.text.trim();
+              if (email.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Please enter your email'),
+                    backgroundColor: AppTheme.warningColor,
+                  ),
+                );
+                return;
+              }
+
+              Navigator.of(context).pop();
+              try {
+                await AuthService.sendPasswordResetEmail(email);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Password reset email sent! Check your inbox.'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Failed to send reset email: $e'),
+                      backgroundColor: AppTheme.negativeColor,
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text(
+              'Send Reset Link',
+              style: TextStyle(color: AppTheme.primaryBlue),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Show change password dialog - requires current password for re-authentication
+  void _showChangePasswordDialog() {
+    final currentPasswordController = TextEditingController();
+    final newPasswordController = TextEditingController();
+    final confirmPasswordController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppTheme.surfaceDark,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          'Change Password',
+          style: TextStyle(color: AppTheme.textPrimary),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: currentPasswordController,
+              decoration: InputDecoration(
+                hintText: 'Current Password',
+                hintStyle: TextStyle(color: AppTheme.textTertiary),
+                filled: true,
+                fillColor: AppTheme.cardDark,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+              style: const TextStyle(color: AppTheme.textPrimary),
+              obscureText: true,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: newPasswordController,
+              decoration: InputDecoration(
+                hintText: 'New Password',
+                hintStyle: TextStyle(color: AppTheme.textTertiary),
+                filled: true,
+                fillColor: AppTheme.cardDark,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+              style: const TextStyle(color: AppTheme.textPrimary),
+              obscureText: true,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: confirmPasswordController,
+              decoration: InputDecoration(
+                hintText: 'Confirm New Password',
+                hintStyle: TextStyle(color: AppTheme.textTertiary),
+                filled: true,
+                fillColor: AppTheme.cardDark,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+              style: const TextStyle(color: AppTheme.textPrimary),
+              obscureText: true,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              // Validate
+              if (newPasswordController.text != confirmPasswordController.text) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('New passwords do not match'),
+                    backgroundColor: AppTheme.negativeColor,
+                  ),
+                );
+                return;
+              }
+
+              if (newPasswordController.text.length < 6) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Password must be at least 6 characters'),
+                    backgroundColor: AppTheme.negativeColor,
+                  ),
+                );
+                return;
+              }
+
+              Navigator.of(context).pop();
+              try {
+                // Re-authenticate first
+                await AuthService.reauthenticate(
+                  email: _userEmail!,
+                  password: currentPasswordController.text,
+                );
+
+                // Update password
+                await AuthService.updatePassword(newPasswordController.text);
+
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Password changed successfully!'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  String errorMessage = 'Failed to change password';
+                  if (e.toString().contains('wrong-password')) {
+                    errorMessage = 'Current password is incorrect';
+                  } else if (e.toString().contains('requires-recent-login')) {
+                    errorMessage = 'Please sign out and sign in again';
+                  }
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(errorMessage),
+                      backgroundColor: AppTheme.negativeColor,
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text(
+              'Change Password',
+              style: TextStyle(color: AppTheme.primaryBlue),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Show delete account dialog - requires password confirmation
+  void _showDeleteAccountDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppTheme.surfaceDark,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: AppTheme.negativeColor),
+            const SizedBox(width: 8),
+            const Text(
+              'Delete Account',
+              style: TextStyle(color: AppTheme.negativeColor),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'This action is permanent and cannot be undone.',
+              style: TextStyle(
+                color: AppTheme.textPrimary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Deleting your account will:\n'
+              '• Remove all your saved meals\n'
+              '• Delete your settings and preferences\n'
+              '• Remove all your data permanently',
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _showDeleteAccountConfirmDialog();
+            },
+            child: const Text(
+              'Continue',
+              style: TextStyle(color: AppTheme.negativeColor),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Show delete account confirmation dialog - requires password
+  void _showDeleteAccountConfirmDialog() {
+    final passwordController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppTheme.surfaceDark,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          'Confirm Account Deletion',
+          style: TextStyle(color: AppTheme.negativeColor),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Enter your password to confirm account deletion:',
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: passwordController,
+              decoration: InputDecoration(
+                hintText: 'Password',
+                hintStyle: TextStyle(color: AppTheme.textTertiary),
+                filled: true,
+                fillColor: AppTheme.cardDark,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+              style: const TextStyle(color: AppTheme.textPrimary),
+              obscureText: true,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              if (passwordController.text.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Please enter your password'),
+                    backgroundColor: AppTheme.warningColor,
+                  ),
+                );
+                return;
+              }
+
+              Navigator.of(context).pop();
+              try {
+                // Re-authenticate first
+                await AuthService.reauthenticate(
+                  email: _userEmail!,
+                  password: passwordController.text,
+                );
+
+                // Delete account
+                await AuthService.deleteAccount();
+
+                if (mounted) {
+                  setState(() {}); // Refresh UI
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Account deleted successfully'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  String errorMessage = 'Failed to delete account';
+                  if (e.toString().contains('wrong-password')) {
+                    errorMessage = 'Incorrect password';
+                  } else if (e.toString().contains('requires-recent-login')) {
+                    errorMessage = 'Please sign out and sign in again';
+                  }
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(errorMessage),
+                      backgroundColor: AppTheme.negativeColor,
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text(
+              'Delete Account',
+              style: TextStyle(color: AppTheme.negativeColor),
             ),
           ),
         ],

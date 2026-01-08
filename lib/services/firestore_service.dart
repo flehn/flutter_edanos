@@ -352,6 +352,9 @@ class UserGoals {
   final int dailyFat;
   final int dailyFiber;
   final bool isGainMode; // true = gain weight, false = lose weight
+  final int perMealProtein;
+  final int perMealCarbs;
+  final int perMealFat;
 
   UserGoals({
     required this.dailyCalories,
@@ -360,6 +363,9 @@ class UserGoals {
     required this.dailyFat,
     required this.dailyFiber,
     this.isGainMode = false,
+    required this.perMealProtein,
+    required this.perMealCarbs,
+    required this.perMealFat,
   });
 
   factory UserGoals.defaults() {
@@ -370,6 +376,9 @@ class UserGoals {
       dailyFat: 67,
       dailyFiber: 30,
       isGainMode: false,
+      perMealProtein: 40,
+      perMealCarbs: 40,
+      perMealFat: 20,
     );
   }
 
@@ -381,6 +390,9 @@ class UserGoals {
       dailyFat: data['dailyFat'] ?? 67,
       dailyFiber: data['dailyFiber'] ?? 30,
       isGainMode: data['isGainMode'] ?? false,
+      perMealProtein: data['perMealProtein'] ?? 40,
+      perMealCarbs: data['perMealCarbs'] ?? 40,
+      perMealFat: data['perMealFat'] ?? 20,
     );
   }
 
@@ -392,6 +404,9 @@ class UserGoals {
       'dailyFat': dailyFat,
       'dailyFiber': dailyFiber,
       'isGainMode': isGainMode,
+      'perMealProtein': perMealProtein,
+      'perMealCarbs': perMealCarbs,
+      'perMealFat': perMealFat,
     };
   }
   
@@ -403,6 +418,9 @@ class UserGoals {
     int? dailyFat,
     int? dailyFiber,
     bool? isGainMode,
+    int? perMealProtein,
+    int? perMealCarbs,
+    int? perMealFat,
   }) {
     return UserGoals(
       dailyCalories: dailyCalories ?? this.dailyCalories,
@@ -411,6 +429,9 @@ class UserGoals {
       dailyFat: dailyFat ?? this.dailyFat,
       dailyFiber: dailyFiber ?? this.dailyFiber,
       isGainMode: isGainMode ?? this.isGainMode,
+      perMealProtein: perMealProtein ?? this.perMealProtein,
+      perMealCarbs: perMealCarbs ?? this.perMealCarbs,
+      perMealFat: perMealFat ?? this.perMealFat,
     );
   }
 }

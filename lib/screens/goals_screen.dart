@@ -25,6 +25,9 @@ class GoalsScreenState extends State<GoalsScreen> {
   int _proteinGoal = 150;
   int _carbsGoal = 250;
   int _fatGoal = 67;
+  int _perMealProtein = 40;
+  int _perMealCarbs = 40;
+  int _perMealFat = 20;
 
   // Today's progress from Firestore
   int _caloriesConsumed = 0;
@@ -64,6 +67,9 @@ class GoalsScreenState extends State<GoalsScreen> {
         _proteinGoal = goals.dailyProtein;
         _carbsGoal = goals.dailyCarbs;
         _fatGoal = goals.dailyFat;
+        _perMealProtein = goals.perMealProtein;
+        _perMealCarbs = goals.perMealCarbs;
+        _perMealFat = goals.perMealFat;
         _isGainMode = goals.isGainMode;
 
         _caloriesConsumed = todaySummary.totalCalories.round();
@@ -129,6 +135,9 @@ class GoalsScreenState extends State<GoalsScreen> {
         dailyFat: fat,
         dailyFiber: 30, // Default
         isGainMode: _isGainMode, // Preserve the weight mode setting
+        perMealProtein: _perMealProtein,
+        perMealCarbs: _perMealCarbs,
+        perMealFat: _perMealFat,
       );
 
       await MealRepository.saveUserGoals(goals);
@@ -138,6 +147,7 @@ class GoalsScreenState extends State<GoalsScreen> {
         _proteinGoal = protein;
         _carbsGoal = carbs;
         _fatGoal = fat;
+        // Per-meal goals are updated from the sheet save handler
       });
 
       if (mounted) {
@@ -271,6 +281,9 @@ class GoalsScreenState extends State<GoalsScreen> {
         dailyFat: _fatGoal,
         dailyFiber: 30,
         isGainMode: isGainMode,
+        perMealProtein: _perMealProtein,
+        perMealCarbs: _perMealCarbs,
+        perMealFat: _perMealFat,
       );
       await MealRepository.saveUserGoals(goals);
     } catch (e) {
@@ -573,7 +586,16 @@ class GoalsScreenState extends State<GoalsScreen> {
         proteinGoal: _proteinGoal,
         carbsGoal: _carbsGoal,
         fatGoal: _fatGoal,
-        onSave: (calories, protein, carbs, fat) {
+        perMealProtein: _perMealProtein,
+        perMealCarbs: _perMealCarbs,
+        perMealFat: _perMealFat,
+        onSave: (calories, protein, carbs, fat, perMealProtein, perMealCarbs,
+            perMealFat) {
+          setState(() {
+            _perMealProtein = perMealProtein;
+            _perMealCarbs = perMealCarbs;
+            _perMealFat = perMealFat;
+          });
           _saveGoals(calories, protein, carbs, fat);
         },
       ),
@@ -586,13 +608,19 @@ class _EditGoalsSheet extends StatefulWidget {
   final int proteinGoal;
   final int carbsGoal;
   final int fatGoal;
-  final Function(int, int, int, int) onSave;
+  final int perMealProtein;
+  final int perMealCarbs;
+  final int perMealFat;
+  final Function(int, int, int, int, int, int, int) onSave;
 
   const _EditGoalsSheet({
     required this.calorieGoal,
     required this.proteinGoal,
     required this.carbsGoal,
     required this.fatGoal,
+    required this.perMealProtein,
+    required this.perMealCarbs,
+    required this.perMealFat,
     required this.onSave,
   });
 
@@ -605,6 +633,9 @@ class _EditGoalsSheetState extends State<_EditGoalsSheet> {
   late TextEditingController _proteinController;
   late TextEditingController _carbsController;
   late TextEditingController _fatController;
+  late TextEditingController _perMealProteinController;
+  late TextEditingController _perMealCarbsController;
+  late TextEditingController _perMealFatController;
 
   @override
   void initState() {
@@ -617,6 +648,12 @@ class _EditGoalsSheetState extends State<_EditGoalsSheet> {
     );
     _carbsController = TextEditingController(text: widget.carbsGoal.toString());
     _fatController = TextEditingController(text: widget.fatGoal.toString());
+    _perMealProteinController =
+        TextEditingController(text: widget.perMealProtein.toString());
+    _perMealCarbsController =
+        TextEditingController(text: widget.perMealCarbs.toString());
+    _perMealFatController =
+        TextEditingController(text: widget.perMealFat.toString());
   }
 
   @override
@@ -625,6 +662,9 @@ class _EditGoalsSheetState extends State<_EditGoalsSheet> {
     _proteinController.dispose();
     _carbsController.dispose();
     _fatController.dispose();
+    _perMealProteinController.dispose();
+    _perMealCarbsController.dispose();
+    _perMealFatController.dispose();
     super.dispose();
   }
 
@@ -637,10 +677,11 @@ class _EditGoalsSheetState extends State<_EditGoalsSheet> {
         top: 24,
         bottom: MediaQuery.of(context).viewInsets.bottom + 24,
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -660,6 +701,12 @@ class _EditGoalsSheetState extends State<_EditGoalsSheet> {
                     int.tryParse(_proteinController.text) ?? widget.proteinGoal,
                     int.tryParse(_carbsController.text) ?? widget.carbsGoal,
                     int.tryParse(_fatController.text) ?? widget.fatGoal,
+                    int.tryParse(_perMealProteinController.text) ??
+                        widget.perMealProtein,
+                    int.tryParse(_perMealCarbsController.text) ??
+                        widget.perMealCarbs,
+                    int.tryParse(_perMealFatController.text) ??
+                        widget.perMealFat,
                   );
                   Navigator.of(context).pop();
                 },
@@ -682,7 +729,23 @@ class _EditGoalsSheetState extends State<_EditGoalsSheet> {
           _buildGoalInput('Carbohydrates', _carbsController, 'g'),
           const SizedBox(height: 16),
           _buildGoalInput('Fat', _fatController, 'g'),
-        ],
+          const SizedBox(height: 24),
+          const Text(
+            'Per meal targets',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _buildGoalInput('Protein per meal', _perMealProteinController, 'g'),
+          const SizedBox(height: 12),
+          _buildGoalInput('Carbs per meal', _perMealCarbsController, 'g'),
+          const SizedBox(height: 12),
+          _buildGoalInput('Fat per meal', _perMealFatController, 'g'),
+          ],
+        ),
       ),
     );
   }

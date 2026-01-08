@@ -33,6 +33,12 @@ class Meal {
   /// Notes from Gemini analysis
   final String? analysisNotes;
 
+  /// AI evaluation text about the meal's healthiness
+  final String? aiEvaluation;
+
+  /// Whether the meal is considered highly processed by AI
+  final bool? isHighlyProcessed;
+
   Meal({
     required this.id,
     required this.name,
@@ -42,6 +48,8 @@ class Meal {
     this.imageUrl,
     this.confidence,
     this.analysisNotes,
+    this.aiEvaluation,
+    this.isHighlyProcessed,
   });
 
   // ============================================
@@ -192,7 +200,23 @@ class Meal {
       imageBytes: imageBytes,
       confidence: (json['confidence'] as num?)?.toDouble(),
       analysisNotes: json['analysisNotes'] as String?,
+      aiEvaluation: json['aiEvaluation'] as String? ??
+          json['evaluation'] as String? ??
+          json['ai_eval'] as String?,
+      isHighlyProcessed: _parseBool(json['isHighlyProcessed']) ??
+          _parseBool(json['highlyProcessed']) ??
+          _parseBool(json['highly_processed']),
     );
+  }
+
+  static bool? _parseBool(dynamic value) {
+    if (value is bool) return value;
+    if (value is String) {
+      final lower = value.toLowerCase();
+      if (lower == 'true' || lower == 'yes') return true;
+      if (lower == 'false' || lower == 'no') return false;
+    }
+    return null;
   }
 
   /// Convert to Firestore document
@@ -205,6 +229,8 @@ class Meal {
       if (imageUrl != null) 'imageUrl': imageUrl,
       if (confidence != null) 'confidence': confidence,
       if (analysisNotes != null) 'analysisNotes': analysisNotes,
+      if (aiEvaluation != null) 'aiEvaluation': aiEvaluation,
+      if (isHighlyProcessed != null) 'isHighlyProcessed': isHighlyProcessed,
       // Store computed totals for quick queries
       'totalCalories': totalCalories,
       'totalProtein': totalProtein,
@@ -231,6 +257,8 @@ class Meal {
       imageUrl: doc['imageUrl'] as String?,
       confidence: (doc['confidence'] as num?)?.toDouble(),
       analysisNotes: doc['analysisNotes'] as String?,
+      aiEvaluation: doc['aiEvaluation'] as String?,
+      isHighlyProcessed: doc['isHighlyProcessed'] as bool?,
     );
   }
 
@@ -244,6 +272,8 @@ class Meal {
     String? imageUrl,
     double? confidence,
     String? analysisNotes,
+    String? aiEvaluation,
+    bool? isHighlyProcessed,
   }) {
     return Meal(
       id: id ?? this.id,
@@ -254,6 +284,8 @@ class Meal {
       imageUrl: imageUrl ?? this.imageUrl,
       confidence: confidence ?? this.confidence,
       analysisNotes: analysisNotes ?? this.analysisNotes,
+      aiEvaluation: aiEvaluation ?? this.aiEvaluation,
+      isHighlyProcessed: isHighlyProcessed ?? this.isHighlyProcessed,
     );
   }
 

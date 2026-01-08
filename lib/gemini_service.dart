@@ -16,71 +16,87 @@ class GeminiService {
   static GenerativeModel? _searchModel;
   static bool _isInitialized = false;
 
-  // System prompts
-  static const String _essentialPrompt = """
-You are EdanosAI Food Analyzer. You analyze food images and identify ALL individual ingredients with their nutritional values.
+  // System prompts - Base prompt with modular additions
+  static const String _basePrompt = """
+You are EdanosAI Food Analyzer. You analyze food and identify ALL individual ingredients with their nutritional values.
 
 Your task:
-1. Identify ALL ingredients visible in the food image(s)
+1. Identify ALL ingredients visible or described
 2. Estimate the quantity of each ingredient (convert to grams/ml)
-3. Provide essential nutritional values for EACH ingredient separately
+3. Provide nutritional values for EACH ingredient separately
 
-IMPORTANT for multiple images:
-- Treat each image as a SINGLE INGREDIENT of ONE combined dish
-- Combine all images into ONE dish with multiple ingredients
-- Name the dish based on the combination of all ingredients
+Convert all amounts to grams (g) or milliliters (ml).
+If an image shows a packaged food product with a Nutritional Information Panel, only extract the nutritional values from the table per 100g! Save this as one single ingredient! 
 
 For each ingredient, provide:
 - Calories (kcal), Protein (g), Carbohydrates (g), Sugar (g)
 - Total Fat (g), Saturated Fat (g), Unsaturated Fat (g), Fiber (g)
-
-Convert all amounts to grams (g) or milliliters (ml).
-If an image shows a packaged food product with a Nutritional Information Panel, use that information.
 """;
 
-  static const String _comprehensivePrompt = """
-You are EdanosAI Food Analyzer. You analyze food images and identify ALL individual ingredients with COMPLETE nutritional profiles including vitamins and minerals.
+// System prompts - Base prompt with modular additions
+  static const String _aiEvaluationPrompt = """
+  Provide a brief overall health evaluation for the dish taking all ingredients into account in the field "aiEvaluation".
+  For this, consider the following:
+  - is the total amount of saturated fat above 5.0g / 100g, this is a risk factor. 
+  - is the total amount of sodium above 1.5g / 100g
+  - is the total amount of sugars above 22g raise a warnig that it contains high amount of sugar! 
 
-Your task:
-1. Identify ALL ingredients visible in the food image(s)
-2. Estimate the quantity of each ingredient (convert to grams/ml)
-3. Provide COMPREHENSIVE nutritional values for EACH ingredient including all vitamins and minerals
+  Set "isHighlyProcessed" to true if the dish:
+  - chemical-based preservatives, emulsifiers like hydrogenated oils, sweeteners like high fructose corn syrup, and artificial colors and flavors.
+  - low in nutritional quality and high in saturated fats, added sugars, and sodium (salt)
+""";
+
+  // Addition for multiple images
+  static const String _multiImageAddition = """
 
 IMPORTANT for multiple images:
 - Treat each image as a SINGLE INGREDIENT of ONE combined dish
 - Combine all images into ONE dish with multiple ingredients
 - Name the dish based on the combination of all ingredients
+""";
 
-For each ingredient, provide ALL values:
-- Macros: Calories, Protein, Carbs, Sugar, Fat, Fiber, Saturated/Unsaturated Fat
+
+  // Comprehensive nutrients (vitamins + minerals)
+  static const String _comprehensiveNutrientsAddition = """
+
 - Fatty acids: Omega-3, Omega-6, Trans Fat
 - Minerals: Sodium, Potassium, Calcium, Magnesium, Phosphorus, Iron, Zinc, Selenium, Iodine, Copper, Manganese, Chromium
 - Vitamins: A, D, E, K, C, B1 (Thiamin), B2 (Riboflavin), B3 (Niacin), B5, B6, B7 (Biotin), B9 (Folate), B12
 - Other: Choline, Cholesterol
 
 Convert amounts to appropriate units (g, mg, mcg, IU).
-If an image shows a packaged food product with a Nutritional Information Panel, use that information.
 """;
 
-  static const String _searchPrompt = """
-You are EdanosAI Ingredient Search. You help users quickly look up nutritional information for any ingredient or food item.
+  // Search-specific addition
+  static const String _searchAddition = """
 
-When a user searches for an ingredient:
+When looking up ingredients:
 1. Use Google Search to find accurate, up-to-date nutritional information
 2. Provide COMPLETE nutritional values per standard serving (typically 100g unless specified)
-3. Include ALL macros, vitamins, and minerals
-
-Return comprehensive data including:
-- Macros: Calories, Protein, Carbs, Sugar, Fat, Fiber, Saturated/Unsaturated Fat
-- Fatty acids: Omega-3, Omega-6, Trans Fat
-- Minerals: Sodium, Potassium, Calcium, Magnesium, Phosphorus, Iron, Zinc, Selenium, Iodine, Copper, Manganese, Chromium
-- Vitamins: A, D, E, K, C, B1, B2, B3, B5, B6, B7, B9, B12
-- Other: Choline, Cholesterol
-
-Be accurate and use reliable nutritional databases. If the ingredient is ambiguous (e.g., "chicken"), default to the most common form (e.g., "chicken breast, cooked").
-
-Always provide values per 100g unless the user specifies a different quantity.
+3. Be accurate and use reliable nutritional databases
+4. If the ingredient is ambiguous (e.g., "chicken"), default to the most common form (e.g., "chicken breast, cooked")
 """;
+
+  static const String _audioAddition = """
+
+Listen to this audio recording where the user describes what they ate.
+Identify all the food items and ingredients mentioned, estimate reasonable portions,
+and provide nutritional information for each.
+If the user mentions specific quantities, use those. Otherwise, estimate typical serving sizes.
+
+""";
+
+  // Composed prompts (multi-image addition is added dynamically in analyzeImages)
+  static String get _essentialPrompt =>
+      _basePrompt + _aiEvaluationPrompt;
+
+  static String get _comprehensivePrompt =>
+      _basePrompt + _comprehensiveNutrientsAddition + _aiEvaluationPrompt;
+
+  static String get _searchPrompt =>
+      _basePrompt + _searchAddition + _comprehensiveNutrientsAddition;
+
+  static String get _audioPrompt => _basePrompt + _comprehensiveNutrientsAddition + _aiEvaluationPrompt + _audioAddition;
 
   /// Initialize the Gemini models.
   /// Firebase must be initialized before calling this.
@@ -88,7 +104,7 @@ Always provide values per 100g unless the user specifies a different quantity.
     if (_isInitialized) return;
 
     // Analysis Model - Essential (macros only)
-    _analysisModelEssential = FirebaseAI.vertexAI().generativeModel(
+    _analysisModelEssential = FirebaseAI.vertexAI(location: 'global').generativeModel(
       model: 'gemini-2.5-flash',
       generationConfig: GenerationConfig(
         responseMimeType: 'application/json',
@@ -98,7 +114,7 @@ Always provide values per 100g unless the user specifies a different quantity.
     );
 
     // Analysis Model - Comprehensive (macros + vitamins/minerals)
-    _analysisModelComprehensive = FirebaseAI.vertexAI().generativeModel(
+    _analysisModelComprehensive = FirebaseAI.vertexAI(location: 'global').generativeModel(
       model: 'gemini-2.5-flash',
       generationConfig: GenerationConfig(
         responseMimeType: 'application/json',
@@ -108,7 +124,7 @@ Always provide values per 100g unless the user specifies a different quantity.
     );
 
     // Search Model with Google Search (uses comprehensive schema)
-    _searchModel = FirebaseAI.vertexAI().generativeModel(
+    _searchModel = FirebaseAI.vertexAI(location: 'global').generativeModel(
       model: 'gemini-2.5-flash-lite',
       tools: [Tool.googleSearch()],
       generationConfig: GenerationConfig(
@@ -147,11 +163,16 @@ Always provide values per 100g unless the user specifies a different quantity.
       throw Exception('No images provided.');
     }
 
-    final prompt =
-        additionalPrompt ??
-        (imageBytesList.length == 1
-            ? "Analyze this food image and identify all ingredients with their nutritional values."
-            : "Analyze these ${imageBytesList.length} food images. Each image represents ONE ingredient. Combine them into a single dish.");
+    // Build the prompt - add multi-image context only when needed
+    String prompt;
+    if (additionalPrompt != null) {
+      prompt = additionalPrompt;
+    } else if (imageBytesList.length == 1) {
+      prompt = "Analyze this food image and identify all ingredients with their nutritional values.";
+    } else {
+      prompt = _multiImageAddition +
+          "Analyze these ${imageBytesList.length} food images. Each image represents ONE ingredient. Combine them into a single dish.";
+    }
 
     // Build content with all images
     final parts = <Part>[TextPart(prompt)];
@@ -222,23 +243,9 @@ Always provide values per 100g unless the user specifies a different quantity.
       throw Exception('No audio provided.');
     }
 
-    final prompt = includeVitamins
-        ? '''
-Listen to this audio recording where the user describes what they ate.
-Identify all the food items and ingredients mentioned, estimate reasonable portions,
-and provide COMPREHENSIVE nutritional information including all vitamins and minerals.
-If the user mentions specific quantities, use those. Otherwise, estimate typical serving sizes.
-'''
-        : '''
-Listen to this audio recording where the user describes what they ate.
-Identify all the food items and ingredients mentioned, estimate reasonable portions,
-and provide nutritional information for each.
-If the user mentions specific quantities, use those. Otherwise, estimate typical serving sizes.
-''';
-
     // Build content with audio
     final parts = <Part>[
-      TextPart(prompt),
+      TextPart(_audioPrompt),
       InlineDataPart('audio/aac', audioBytes),
     ];
 

@@ -32,6 +32,14 @@ final jsonSchema_essentialNutrition = Schema.object(
     'dishName': Schema.string(),
     'confidence': Schema.number(),
     'analysisNotes': Schema.string(),
+    'aiEvaluation': Schema.string(
+      description:
+          'Brief AI evaluation (1-2 sentences) about overall healthiness and suggestions',
+    ),
+    'isHighlyProcessed': Schema.boolean(
+      description:
+          'True if the meal is highly processed (packaged/ultra-processed), false otherwise',
+    ),
   },
 );
 
@@ -100,5 +108,13 @@ final jsonSchema_comprehensiveNutrition = Schema.object(
     'dishName': Schema.string(),
     'confidence': Schema.number(),
     'analysisNotes': Schema.string(),
+    'aiEvaluation': Schema.string(
+      description:
+          'Brief AI evaluation (1-2 sentences) about overall healthiness and suggestions',
+    ),
+    'isHighlyProcessed': Schema.boolean(
+      description:
+          'True if the meal is highly processed (packaged/ultra-processed), false otherwise',
+    ),
   },
 );

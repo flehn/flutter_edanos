@@ -1,16 +1,24 @@
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../models/meal.dart';
 import '../models/ingredient.dart';
 import '../services/firestore_service.dart';
 import '../services/meal_repository.dart';
-import 'food_details_screen.dart';
+import '../gemini_service.dart';
+import '../image_picker_service.dart';
 
 /// Meal Detail Screen - Full nutritional breakdown for a meal
 class MealDetailScreen extends StatefulWidget {
   final Meal meal;
+  final bool isNewMeal; // True if coming from camera/scan, false if editing existing
 
-  const MealDetailScreen({super.key, required this.meal});
+  const MealDetailScreen({
+    super.key,
+    required this.meal,
+    this.isNewMeal = false,
+  });
 
   @override
   State<MealDetailScreen> createState() => _MealDetailScreenState();
@@ -21,12 +29,30 @@ class _MealDetailScreenState extends State<MealDetailScreen> {
   late DateTime _originalDate;
   bool _isAddedToQuickAdd = false;
   bool _dateChanged = false;
+  UserGoals? _userGoals;
+  bool _isLoadingGoals = false;
+  String _selectedTab = 'ai';
+  final TextEditingController _ingredientSearchController =
+      TextEditingController();
+  bool _isAddingIngredient = false;
+  bool _isSearchingIngredient = false;
 
   @override
   void initState() {
     super.initState();
     _meal = widget.meal.copyWith();
     _originalDate = widget.meal.scannedAt;
+    _loadGoals();
+    // Auto-save new meals
+    if (widget.isNewMeal) {
+      _autoSaveNewMeal();
+    }
+  }
+
+  @override
+  void dispose() {
+    _ingredientSearchController.dispose();
+    super.dispose();
   }
 
   Future<void> _selectDate() async {
@@ -163,6 +189,269 @@ class _MealDetailScreenState extends State<MealDetailScreen> {
     }
   }
 
+  Future<void> _loadGoals() async {
+    setState(() => _isLoadingGoals = true);
+    try {
+      final goals = await MealRepository.getUserGoals();
+      if (mounted) {
+        setState(() {
+          _userGoals = goals;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading goals: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingGoals = false);
+      }
+    }
+  }
+
+  int _perMealProteinTarget() => _userGoals?.perMealProtein ?? 40;
+  int _perMealCarbTarget() => _userGoals?.perMealCarbs ?? 40;
+  int _perMealFatTarget() => _userGoals?.perMealFat ?? 20;
+
+  Future<void> _editMealName() async {
+    final controller = TextEditingController(text: _meal.name);
+    final newName = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppTheme.surfaceDark,
+        title: const Text(
+          'Edit Meal Name',
+          style: TextStyle(color: AppTheme.textPrimary),
+        ),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          style: const TextStyle(color: AppTheme.textPrimary),
+          decoration: InputDecoration(
+            hintText: 'Enter meal name',
+            hintStyle: TextStyle(color: AppTheme.textTertiary),
+            enabledBorder: UnderlineInputBorder(
+              borderSide: BorderSide(color: AppTheme.textTertiary),
+            ),
+            focusedBorder: UnderlineInputBorder(
+              borderSide: BorderSide(color: AppTheme.primaryBlue),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (newName != null && newName.isNotEmpty && newName != _meal.name) {
+      setState(() {
+        _meal = _meal.copyWith(name: newName);
+      });
+      await _saveMealChanges();
+    }
+  }
+
+  Future<void> _saveMealChanges() async {
+    try {
+      await FirestoreService.updateMeal(_meal.id, _meal);
+    } catch (e) {
+      debugPrint('Failed to save meal changes: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to save changes: $e'),
+            backgroundColor: AppTheme.negativeColor,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _autoSaveNewMeal() async {
+    try {
+      // Save the new meal to Firestore
+      await MealRepository.saveMeal(_meal);
+      debugPrint('Auto-saved new meal: ${_meal.name}');
+    } catch (e) {
+      debugPrint('Failed to auto-save new meal: $e');
+    }
+  }
+
+  Future<void> _deleteMeal() async {
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppTheme.surfaceDark,
+        title: const Text(
+          'Delete Meal',
+          style: TextStyle(color: AppTheme.textPrimary),
+        ),
+        content: const Text(
+          'Are you sure you want to delete this meal?',
+          style: TextStyle(color: AppTheme.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text(
+              'Delete',
+              style: TextStyle(color: AppTheme.negativeColor),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await MealRepository.deleteMeal(_meal.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Meal deleted'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.of(context).pop(); // Go back to previous screen
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to delete: $e'),
+            backgroundColor: AppTheme.negativeColor,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _addIngredientsFromJson(Map<String, dynamic> data) async {
+    try {
+      final ingredientsJson = data['ingredients'];
+      if (ingredientsJson is! List || ingredientsJson.isEmpty) {
+        throw Exception('No ingredients found');
+      }
+
+      final newIngredients = <Ingredient>[];
+      for (final ing in ingredientsJson) {
+        if (ing is Map<String, dynamic>) {
+          try {
+            newIngredients.add(Ingredient.fromGeminiJson(ing));
+          } catch (_) {
+            // skip invalid ingredient
+          }
+        }
+      }
+
+      if (newIngredients.isEmpty) {
+        throw Exception('No valid ingredients found');
+      }
+
+      setState(() {
+        _meal.ingredients.addAll(newIngredients);
+      });
+
+      await _saveMealChanges();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not add ingredient: $e'),
+            backgroundColor: AppTheme.negativeColor,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleSearchIngredient(String query) async {
+    if (query.trim().isEmpty) return;
+
+    setState(() => _isSearchingIngredient = true);
+    try {
+      final result = await GeminiService.searchIngredient(query);
+      if (result == null) {
+        throw Exception('No response from AI');
+      }
+
+      final data = jsonDecode(result) as Map<String, dynamic>;
+      await _addIngredientsFromJson(data);
+      _ingredientSearchController.clear();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Search failed: $e'),
+            backgroundColor: AppTheme.negativeColor,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSearchingIngredient = false);
+      }
+    }
+  }
+
+  Future<void> _handleCameraIngredient() async {
+    try {
+      final Uint8List? imageBytes = await ImagePickerService.takePhoto();
+      if (imageBytes == null) return;
+
+      setState(() => _isAddingIngredient = true);
+
+      final result = await GeminiService.analyzeImage(imageBytes);
+      if (result == null) {
+        throw Exception('No response from AI');
+      }
+
+      final data = jsonDecode(result) as Map<String, dynamic>;
+      await _addIngredientsFromJson(data);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Camera add failed: $e'),
+            backgroundColor: AppTheme.negativeColor,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isAddingIngredient = false);
+      }
+    }
+  }
+
+  void _updateIngredientAmount(int index, double newAmount) {
+    if (index < 0 || index >= _meal.ingredients.length) return;
+    setState(() {
+      _meal.updateIngredientAmount(index, newAmount);
+    });
+    _saveMealChanges();
+  }
+
+  Future<void> _removeIngredient(int index) async {
+    if (index < 0 || index >= _meal.ingredients.length) return;
+    setState(() {
+      _meal.removeIngredient(index);
+    });
+    await _saveMealChanges();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -229,13 +518,27 @@ class _MealDetailScreenState extends State<MealDetailScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Meal name
-                  Text(
-                    _meal.name,
-                    style: const TextStyle(
-                      fontSize: 26,
-                      fontWeight: FontWeight.bold,
-                      color: AppTheme.textPrimary,
+                  // Meal name (tappable to edit)
+                  GestureDetector(
+                    onTap: _editMealName,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _meal.name,
+                            style: const TextStyle(
+                              fontSize: 26,
+                              fontWeight: FontWeight.bold,
+                              color: AppTheme.textPrimary,
+                            ),
+                          ),
+                        ),
+                        const Icon(
+                          Icons.edit,
+                          color: AppTheme.textTertiary,
+                          size: 18,
+                        ),
+                      ],
                     ),
                   ),
 
@@ -271,23 +574,42 @@ class _MealDetailScreenState extends State<MealDetailScreen> {
 
                   const SizedBox(height: 24),
 
-                  // Nutritional Information Card
-                  _buildNutritionalCard(),
+                  // Macro rings vs per-meal targets
+                  _buildMacroRings(),
 
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 20),
 
                   // Secondary nutrients
                   _buildSecondaryNutrients(),
 
                   const SizedBox(height: 24),
 
-                  // Micronutrients section (expandable)
-                  _buildMicronutrientsSection(context),
+                  // Tabbed content
+                  _buildTabSelector(),
 
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 16),
 
-                  // Ingredients section
-                  _buildIngredientsSection(context),
+                  _buildTabContent(),
+
+                  const SizedBox(height: 32),
+
+                  // Delete meal button
+                  Center(
+                    child: TextButton.icon(
+                      onPressed: _deleteMeal,
+                      icon: const Icon(
+                        Icons.delete_outline,
+                        color: AppTheme.negativeColor,
+                      ),
+                      label: const Text(
+                        'Delete Meal',
+                        style: TextStyle(
+                          color: AppTheme.negativeColor,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                  ),
 
                   const SizedBox(height: 32),
                 ],
@@ -370,8 +692,199 @@ class _MealDetailScreenState extends State<MealDetailScreen> {
     );
   }
 
-  Widget _buildNutritionalCard() {
+  Widget _buildMacroRings() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        _buildMacroRing(
+          label: 'Protein',
+          value: _meal.totalProtein,
+          target: _perMealProteinTarget().toDouble(),
+          unit: 'g',
+          color: AppTheme.proteinColor,
+        ),
+        _buildMacroRing(
+          label: 'Carbs',
+          value: _meal.totalCarbs,
+          target: _perMealCarbTarget().toDouble(),
+          unit: 'g',
+          color: AppTheme.carbsColor,
+        ),
+        _buildMacroRing(
+          label: 'Fat',
+          value: _meal.totalFat,
+          target: _perMealFatTarget().toDouble(),
+          unit: 'g',
+          color: AppTheme.fatColor,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMacroRing({
+    required String label,
+    required double value,
+    required double target,
+    required String unit,
+    required Color color,
+  }) {
+    final progress = target > 0 ? (value / target).clamp(0.0, 2.0) : 0.0;
+    final percentage = (progress * 100).round();
+
+    return Column(
+      children: [
+        SizedBox(
+          width: 90,
+          height: 90,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              SizedBox(
+                width: 82,
+                height: 82,
+                child: CustomPaint(
+                  painter: _CircleProgressPainter(
+                    progress: 1.0,
+                    progressColor: Colors.white,
+                    backgroundColor: Colors.transparent,
+                    strokeWidth: 2,
+                    isDotted: true,
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: 82,
+                height: 82,
+                child: CustomPaint(
+                  painter: _CircleProgressPainter(
+                    progress: progress > 1 ? 1 : progress,
+                    progressColor: color,
+                    backgroundColor: Colors.transparent,
+                    strokeWidth: 5,
+                    isDotted: false,
+                  ),
+                ),
+              ),
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppTheme.backgroundDark,
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      '${value.toStringAsFixed(0)}$unit',
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.textPrimary,
+                      ),
+                    ),
+                    Text(
+                      '/${target.toStringAsFixed(0)}$unit',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: AppTheme.textTertiary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: color,
+          ),
+        ),
+        Text(
+          '$percentage%',
+          style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTabSelector() {
+    final tabs = [
+      {'key': 'ai', 'label': 'AI Evaluation'},
+      {
+        'key': 'ingredients',
+        'label': '${_meal.ingredients.length} Ingredients'
+      },
+      {'key': 'micros', 'label': 'Micronutrients'},
+    ];
+
     return Container(
+      decoration: BoxDecoration(
+        color: AppTheme.cardDark,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: tabs
+            .map(
+              (tab) => Expanded(
+                child: GestureDetector(
+                  onTap: () {
+                    setState(() => _selectedTab = tab['key'] as String);
+                  },
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                    decoration: BoxDecoration(
+                      color: _selectedTab == tab['key']
+                          ? Colors.white.withOpacity(0.08)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Center(
+                      child: Text(
+                        tab['label'] as String,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: _selectedTab == tab['key']
+                              ? Colors.white
+                              : AppTheme.textSecondary,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            )
+            .toList(),
+      ),
+    );
+  }
+
+  Widget _buildTabContent() {
+    switch (_selectedTab) {
+      case 'ingredients':
+        return _buildIngredientsTab();
+      case 'micros':
+        return _buildMicronutrientsTab();
+      case 'ai':
+      default:
+        return _buildAiEvaluationTab();
+    }
+  }
+
+  Widget _buildAiEvaluationTab() {
+    final evaluation =
+        _meal.aiEvaluation ?? _meal.analysisNotes ?? 'No AI evaluation yet.';
+    final processed = _meal.isHighlyProcessed ?? false;
+
+    return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppTheme.cardDark,
@@ -380,66 +893,61 @@ class _MealDetailScreenState extends State<MealDetailScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Nutritional Information',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-              color: AppTheme.textPrimary,
-            ),
-          ),
-          const SizedBox(height: 16),
           Row(
             children: [
-              _buildMainNutrient(
-                'Protein',
-                '${_meal.totalProtein.toStringAsFixed(0)}g',
-                AppTheme.proteinColor,
-                Icons.fitness_center,
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: processed
+                      ? AppTheme.negativeColor.withOpacity(0.15)
+                      : Colors.green.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      processed ? Icons.warning_amber_rounded : Icons.check,
+                      size: 16,
+                      color: processed
+                          ? AppTheme.negativeColor
+                          : Colors.greenAccent,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      processed ? 'Highly processed' : 'Minimally processed',
+                      style: TextStyle(
+                        color: processed
+                            ? AppTheme.negativeColor
+                            : Colors.greenAccent,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              _buildMainNutrient(
-                'Carbs',
-                '${_meal.totalCarbs.toStringAsFixed(0)}g',
-                AppTheme.carbsColor,
-                Icons.grain,
-              ),
-              _buildMainNutrient(
-                'Fat',
-                '${_meal.totalFat.toStringAsFixed(0)}g',
-                AppTheme.fatColor,
-                Icons.water_drop,
-              ),
+              if (_isLoadingGoals) ...[
+                const SizedBox(width: 12),
+                const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor:
+                        AlwaysStoppedAnimation<Color>(AppTheme.primaryBlue),
+                  ),
+                ),
+              ],
             ],
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMainNutrient(
-    String label,
-    String value,
-    Color color,
-    IconData icon,
-  ) {
-    return Expanded(
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, color: color, size: 18),
-              const SizedBox(width: 4),
-              Text(label, style: TextStyle(fontSize: 13, color: color)),
-            ],
-          ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 12),
           Text(
-            value,
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: color,
+            evaluation,
+            style: const TextStyle(
+              color: AppTheme.textPrimary,
+              fontSize: 14,
+              height: 1.4,
             ),
           ),
         ],
@@ -447,6 +955,172 @@ class _MealDetailScreenState extends State<MealDetailScreen> {
     );
   }
 
+  Widget _buildIngredientsTab() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ...List.generate(
+            _meal.ingredients.length,
+            (index) => _buildIngredientRow(index, _meal.ingredients[index]),
+          ),
+          const SizedBox(height: 12),
+          _buildIngredientSearchBar(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildIngredientSearchBar() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Add ingredient',
+          style: TextStyle(
+            fontSize: 14,
+            color: AppTheme.textSecondary,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            _isSearchingIngredient
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor:
+                          AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
+                : const Icon(Icons.search, color: AppTheme.textSecondary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextField(
+                controller: _ingredientSearchController,
+                onSubmitted: _handleSearchIngredient,
+                onChanged: (_) => setState(() {}),
+                style: const TextStyle(color: AppTheme.textPrimary),
+                decoration: InputDecoration(
+                  hintText: 'Search for ingredient ...',
+                  hintStyle: TextStyle(color: AppTheme.textTertiary),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: AppTheme.textTertiary.withValues(alpha: 0.3)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: AppTheme.textTertiary.withValues(alpha: 0.3)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: AppTheme.primaryBlue),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  suffixIcon: _ingredientSearchController.text.isNotEmpty
+                      ? IconButton(
+                          onPressed: () {
+                            _ingredientSearchController.clear();
+                            setState(() {});
+                          },
+                          icon: const Icon(Icons.close, color: AppTheme.textTertiary),
+                        )
+                      : null,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              onPressed:
+                  _isAddingIngredient ? null : () => _handleCameraIngredient(),
+              icon: _isAddingIngredient
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor:
+                            AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : const Icon(Icons.camera_alt_outlined,
+                      color: AppTheme.textSecondary),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMicronutrientsTab() {
+    final microItems = <Widget>[];
+
+    void addMicro(String label, String? value) {
+      if (value != null) {
+        microItems.add(_buildMicroRow(label, value));
+      }
+    }
+
+    addMicro(
+        'Vitamin A',
+        _meal.totalVitaminA != null
+            ? '${_meal.totalVitaminA!.toStringAsFixed(0)}mcg'
+            : null);
+    addMicro(
+        'Vitamin C',
+        _meal.totalVitaminC != null
+            ? '${_meal.totalVitaminC!.toStringAsFixed(0)}mg'
+            : null);
+    addMicro(
+        'Vitamin D',
+        _meal.totalVitaminD != null
+            ? '${_meal.totalVitaminD!.toStringAsFixed(0)}IU'
+            : null);
+    addMicro(
+        'Calcium',
+        _meal.totalCalcium != null
+            ? '${_meal.totalCalcium!.toStringAsFixed(0)}mg'
+            : null);
+    addMicro(
+        'Iron',
+        _meal.totalIron != null
+            ? '${_meal.totalIron!.toStringAsFixed(1)}mg'
+            : null);
+    addMicro(
+        'Potassium',
+        _meal.totalPotassium != null
+            ? '${_meal.totalPotassium!.toStringAsFixed(0)}mg'
+            : null);
+    addMicro(
+        'Magnesium',
+        _meal.totalMagnesium != null
+            ? '${_meal.totalMagnesium!.toStringAsFixed(0)}mg'
+            : null);
+    addMicro(
+        'Zinc',
+        _meal.totalZinc != null
+            ? '${_meal.totalZinc!.toStringAsFixed(1)}mg'
+            : null);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: microItems.isEmpty
+          ? const Text(
+              'No micronutrients available for this meal.',
+              style: TextStyle(color: AppTheme.textSecondary),
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: microItems,
+            ),
+    );
+  }
   Widget _buildSecondaryNutrients() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -491,113 +1165,6 @@ class _MealDetailScreenState extends State<MealDetailScreen> {
     );
   }
 
-  Widget _buildMicronutrientsSection(BuildContext context) {
-    // Check if any micronutrients are available
-    final hasComprehensive =
-        _meal.totalVitaminA != null ||
-        _meal.totalVitaminC != null ||
-        _meal.totalVitaminD != null ||
-        _meal.totalIron != null ||
-        _meal.totalCalcium != null;
-
-    return GestureDetector(
-      onTap: () {
-        if (hasComprehensive) {
-          _showMicronutrientsSheet(context);
-        }
-      },
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppTheme.cardDark,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text(
-              'Micronutrients',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: AppTheme.textPrimary,
-              ),
-            ),
-            Icon(
-              Icons.chevron_right,
-              color: hasComprehensive
-                  ? AppTheme.primaryBlue
-                  : AppTheme.textTertiary,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showMicronutrientsSheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppTheme.surfaceDark,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Micronutrients',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: AppTheme.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 24),
-            if (_meal.totalVitaminA != null)
-              _buildMicroRow(
-                'Vitamin A',
-                '${_meal.totalVitaminA!.toStringAsFixed(0)}mcg',
-              ),
-            if (_meal.totalVitaminC != null)
-              _buildMicroRow(
-                'Vitamin C',
-                '${_meal.totalVitaminC!.toStringAsFixed(0)}mg',
-              ),
-            if (_meal.totalVitaminD != null)
-              _buildMicroRow(
-                'Vitamin D',
-                '${_meal.totalVitaminD!.toStringAsFixed(0)}IU',
-              ),
-            if (_meal.totalCalcium != null)
-              _buildMicroRow(
-                'Calcium',
-                '${_meal.totalCalcium!.toStringAsFixed(0)}mg',
-              ),
-            if (_meal.totalIron != null)
-              _buildMicroRow('Iron', '${_meal.totalIron!.toStringAsFixed(1)}mg'),
-            if (_meal.totalPotassium != null)
-              _buildMicroRow(
-                'Potassium',
-                '${_meal.totalPotassium!.toStringAsFixed(0)}mg',
-              ),
-            if (_meal.totalMagnesium != null)
-              _buildMicroRow(
-                'Magnesium',
-                '${_meal.totalMagnesium!.toStringAsFixed(0)}mg',
-              ),
-            if (_meal.totalZinc != null)
-              _buildMicroRow('Zinc', '${_meal.totalZinc!.toStringAsFixed(1)}mg'),
-            const SizedBox(height: 16),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildMicroRow(String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -621,84 +1188,108 @@ class _MealDetailScreenState extends State<MealDetailScreen> {
     );
   }
 
-  Widget _buildIngredientsSection(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text(
-              'Ingredients',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: AppTheme.textPrimary,
-              ),
-            ),
-            TextButton(
-              onPressed: () async {
-                final result = await Navigator.of(context).push<Meal>(
-                  MaterialPageRoute(
-                    builder: (context) => FoodDetailsScreen(
-                      meal: _meal,
-                      isNewMeal: false, // This is an existing meal being edited
-                    ),
-                  ),
-                );
-                // Update local state if meal was edited
-                if (result != null) {
-                  setState(() {
-                    _meal = result;
-                  });
-                }
-              },
-              child: const Text(
-                'Edit',
-                style: TextStyle(color: AppTheme.primaryBlue, fontSize: 14),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        ..._meal.ingredients.map(
-          (ingredient) => _buildIngredientRow(ingredient),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildIngredientRow(Ingredient ingredient) {
+  Widget _buildIngredientRow(int index, Ingredient ingredient) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12),
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       decoration: BoxDecoration(
         border: Border(
-          bottom: BorderSide(color: AppTheme.textTertiary.withOpacity(0.2)),
+          bottom: BorderSide(color: AppTheme.textTertiary.withValues(alpha: 0.2)),
         ),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Bullet point
-          Container(
-            width: 6,
-            height: 6,
-            decoration: BoxDecoration(
-              color: AppTheme.textSecondary,
-              borderRadius: BorderRadius.circular(3),
-            ),
+          // Row with delete button, name, and amount/kcal using Wrap for flexibility
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Delete button (fixed left)
+              GestureDetector(
+                onTap: () => _removeIngredient(index),
+                child: Container(
+                  width: 24,
+                  height: 24,
+                  margin: const EdgeInsets.only(right: 12, top: 2),
+                  decoration: BoxDecoration(
+                    color: AppTheme.negativeColor,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.remove,
+                    color: Colors.white,
+                    size: 16,
+                  ),
+                ),
+              ),
+              // Name and amount/kcal in flexible layout
+              Expanded(
+                child: Wrap(
+                  spacing: 16,
+                  runSpacing: 4,
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    // Ingredient name
+                    Text(
+                      ingredient.name,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        color: AppTheme.textPrimary,
+                      ),
+                    ),
+                    // Amount and kcal
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '${ingredient.amount.round()}${ingredient.unit}',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: AppTheme.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          '${ingredient.calories.round()} kcal',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: AppTheme.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 12),
-          // Ingredient name and amount
-          Expanded(
-            child: Text(
-              '${ingredient.name}: ${ingredient.amount.round()} ${ingredient.unit}',
-              style: const TextStyle(fontSize: 15, color: AppTheme.textPrimary),
+
+          const SizedBox(height: 8),
+
+          // Slider
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              trackHeight: 3,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
+              activeTrackColor: AppTheme.primaryBlue,
+              inactiveTrackColor: AppTheme.textTertiary.withValues(alpha: 0.3),
+              thumbColor: AppTheme.primaryBlue,
+              overlayColor: AppTheme.primaryBlue.withValues(alpha: 0.2),
             ),
-          ),
-          // Calories
-          Text(
-            '${ingredient.calories.round()} kcal',
-            style: TextStyle(fontSize: 14, color: AppTheme.textTertiary),
+            child: Slider(
+              value: ingredient.amount.clamp(
+                ingredient.minAmount,
+                ingredient.maxAmount,
+              ),
+              min: ingredient.minAmount,
+              max: ingredient.maxAmount,
+              onChanged: (value) => _updateIngredientAmount(index, value),
+            ),
           ),
         ],
       ),
@@ -725,5 +1316,85 @@ class _MealDetailScreenState extends State<MealDetailScreen> {
 
   String _formatTime(DateTime date) {
     return '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+  }
+}
+
+class _CircleProgressPainter extends CustomPainter {
+  final double progress;
+  final Color progressColor;
+  final Color backgroundColor;
+  final double strokeWidth;
+  final bool isDotted;
+
+  _CircleProgressPainter({
+    required this.progress,
+    required this.progressColor,
+    required this.backgroundColor,
+    required this.strokeWidth,
+    this.isDotted = false,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = (size.width - strokeWidth) / 2;
+
+    if (isDotted) {
+      _drawDottedCircle(canvas, center, radius);
+    } else {
+      if (progress > 0) {
+        final progressPaint = Paint()
+          ..color = progressColor
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = strokeWidth
+          ..strokeCap = StrokeCap.round;
+
+        const startAngle = -90 * 3.14159 / 180;
+        final sweepAngle = progress * 2 * 3.14159;
+
+        canvas.drawArc(
+          Rect.fromCircle(center: center, radius: radius),
+          startAngle,
+          sweepAngle,
+          false,
+          progressPaint,
+        );
+      }
+    }
+  }
+
+  void _drawDottedCircle(Canvas canvas, Offset center, double radius) {
+    final paint = Paint()
+      ..color = progressColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round;
+
+    const dotCount = 20;
+    const gapRatio = 0.9;
+
+    const fullCircle = 2 * 3.14159;
+    final segmentAngle = fullCircle / dotCount;
+    final dotAngle = segmentAngle * (1 - gapRatio);
+
+    const startAngle = -90 * 3.14159 / 180;
+
+    for (int i = 0; i < dotCount; i++) {
+      final angle = startAngle + (i * segmentAngle);
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radius),
+        angle,
+        dotAngle,
+        false,
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _CircleProgressPainter oldDelegate) {
+    return oldDelegate.progress != progress ||
+        oldDelegate.progressColor != progressColor ||
+        oldDelegate.isDotted != isDotted;
   }
 }

@@ -8,7 +8,7 @@ import '../audio_service.dart';
 import '../models/meal.dart';
 import '../services/meal_repository.dart';
 import '../services/firestore_service.dart';
-import 'food_details_screen.dart';
+import 'meal_detail_screen.dart';
 
 /// Add Food Screen - Main entry point for adding meals
 /// Features: Take picture, Choose image, Record description, Quick add, Search
@@ -112,7 +112,7 @@ class AddFoodScreenState extends State<AddFoodScreen> {
       // Navigate to food details to adjust and save
       Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (context) => FoodDetailsScreen(meal: meal, isNewMeal: true),
+          builder: (context) => MealDetailScreen(meal: meal, isNewMeal: true),
         ),
       );
 
@@ -254,7 +254,7 @@ class AddFoodScreenState extends State<AddFoodScreen> {
       if (mounted) {
         Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (context) => FoodDetailsScreen(meal: meal),
+            builder: (context) => MealDetailScreen(meal: meal, isNewMeal: true),
           ),
         );
       }
@@ -397,7 +397,7 @@ class AddFoodScreenState extends State<AddFoodScreen> {
       if (mounted) {
         await Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (context) => FoodDetailsScreen(meal: meal, isNewMeal: true),
+            builder: (context) => MealDetailScreen(meal: meal, isNewMeal: true),
           ),
         );
       }
@@ -587,7 +587,7 @@ class AddFoodScreenState extends State<AddFoodScreen> {
       if (mounted) {
         Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (context) => FoodDetailsScreen(meal: meal, isNewMeal: true),
+            builder: (context) => MealDetailScreen(meal: meal, isNewMeal: true),
           ),
         );
       }
