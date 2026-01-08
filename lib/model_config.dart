@@ -118,3 +118,20 @@ final jsonSchema_comprehensiveNutrition = Schema.object(
     ),
   },
 );
+
+// ============================================
+// AI EVALUATION SCHEMA ()
+// ============================================
+
+final jsonSchema_aievaluation = Schema.object(
+  properties: {
+    'good': Schema.string(
+      description:
+          'Describe the health benefits of the meal!',
+    ),
+    'critical': Schema.string(
+      description:
+          'Describe the potential health issues!',
+    ),
+  },
+);

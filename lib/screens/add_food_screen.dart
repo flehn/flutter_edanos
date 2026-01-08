@@ -513,7 +513,7 @@ class AddFoodScreenState extends State<AddFoodScreen> {
               children: [
                 const Icon(Icons.mic, color: Colors.white),
                 const SizedBox(width: 12),
-                Text('Recording... (max 60s) Tap again to stop'),
+                Expanded(child: Text('Recording... (max 60s) Tap again to stop')),
               ],
             ),
             duration: const Duration(minutes: 1),

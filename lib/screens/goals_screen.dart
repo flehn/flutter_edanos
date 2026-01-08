@@ -646,6 +646,9 @@ class _EditGoalsSheetState extends State<_EditGoalsSheet> {
   // Protein preset: 0.8, 1.2, 2.0, or null for custom
   double? _selectedProteinPreset;
 
+  // Track which field was last edited for auto-calculation
+  String? _lastEditedMacroField;
+
   @override
   void initState() {
     super.initState();
@@ -666,6 +669,11 @@ class _EditGoalsSheetState extends State<_EditGoalsSheet> {
 
     // Add listeners to detect manual protein changes
     _proteinController.addListener(_onProteinChanged);
+    
+    // Add listeners for auto-calculating 4th macro field
+    _caloriesController.addListener(() => _onMacroFieldChanged('calories'));
+    _carbsController.addListener(() => _onMacroFieldChanged('carbs'));
+    _fatController.addListener(() => _onMacroFieldChanged('fat'));
 
     // Load user's body weight
     _loadBodyWeight();
@@ -720,6 +728,62 @@ class _EditGoalsSheetState extends State<_EditGoalsSheet> {
         _proteinController.text = protein.toString();
       }
     });
+  }
+
+  /// Track which macro was edited and auto-calculate the 4th
+  void _onMacroFieldChanged(String field) {
+    _lastEditedMacroField = field;
+    _tryAutoCalculateMissingMacro();
+  }
+
+  /// Auto-calculate the missing macro when 3 of 4 are set
+  /// Formula: calories = 4*protein + 4*carbs + 9*fat
+  void _tryAutoCalculateMissingMacro() {
+    final calories = int.tryParse(_caloriesController.text);
+    final protein = int.tryParse(_proteinController.text);
+    final carbs = int.tryParse(_carbsController.text);
+    final fat = int.tryParse(_fatController.text);
+
+    // Count how many fields have valid values
+    int filledCount = 0;
+    if (calories != null && calories > 0) filledCount++;
+    if (protein != null && protein > 0) filledCount++;
+    if (carbs != null && carbs > 0) filledCount++;
+    if (fat != null && fat > 0) filledCount++;
+
+    // Only calculate if exactly 3 fields are filled
+    if (filledCount != 3) return;
+
+    // Determine which field is missing and calculate it
+    if (calories == null || calories <= 0) {
+      // Calculate calories from macros
+      final calculated = (protein! * 4) + (carbs! * 4) + (fat! * 9);
+      _caloriesController.text = calculated.toString();
+    } else if (protein == null || protein <= 0) {
+      // Calculate protein: protein = (calories - 4*carbs - 9*fat) / 4
+      final proteinCalories = calories! - (carbs! * 4) - (fat! * 9);
+      if (proteinCalories > 0) {
+        final calculated = (proteinCalories / 4).round();
+        _proteinController.removeListener(_onProteinChanged);
+        _proteinController.text = calculated.toString();
+        _proteinController.addListener(_onProteinChanged);
+        _selectedProteinPreset = null;
+      }
+    } else if (carbs == null || carbs <= 0) {
+      // Calculate carbs: carbs = (calories - 4*protein - 9*fat) / 4
+      final carbsCalories = calories! - (protein! * 4) - (fat! * 9);
+      if (carbsCalories > 0) {
+        final calculated = (carbsCalories / 4).round();
+        _carbsController.text = calculated.toString();
+      }
+    } else if (fat == null || fat <= 0) {
+      // Calculate fat: fat = (calories - 4*protein - 4*carbs) / 9
+      final fatCalories = calories! - (protein! * 4) - (carbs! * 4);
+      if (fatCalories > 0) {
+        final calculated = (fatCalories / 9).round();
+        _fatController.text = calculated.toString();
+      }
+    }
   }
 
   /// Calculate calories from macros: 4*protein + 4*carbs + 9*fat

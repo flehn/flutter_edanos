@@ -105,39 +105,24 @@ For each ingredient, provide:
 - Total Fat (g), Saturated Fat (g), Unsaturated Fat (g), Fiber (g)
 """;
 
-
-
-
-// max 22g of sugar per female, 37g sugar per man per day based on Dr. Robert Lustig.
-// max 10% of saturated fat of total calory intake
-// max 5g of sodium per 100g based on World Health Organization.
-// 
-
+  // AI Evaluation prompt for daily health summary
   static const String _aiEvaluationPrompt_daysummarie = """
-  Provide a brief overall health evaluation for the current day.
-  For this, consider the following user information:
-  - age
-  - gender
-  - goal
-  - burned calories
+You are a nutrition expert providing brief health evaluations.
+Based on the user's profile and daily consumption data provided, evaluate their nutrition.
 
-  Here are the consumptions for the current day:   
-  - total amount of calories
-  - total amount of protein
-  - total amount of carbohydrates
-  - total amount of fat
-  - total amount of saturated fat
-  - total amount of fiber
-  - total amount of sugar
-  - total amount of sodium
-  
-  Here are the rules for the evaluation:
-  - max 22g of sugar per female, 37g sugar per man per day
-  - max 10% of saturated fat of total calory intake
-  - max 2,300 milligrams (mg) sodium per day
-  - minimum 30g fibre per day for men, minimum 25g fibre per day for women
-  - minimum 0.8g protein per kg body weight per day. 
+For "good": Describe what they did well today (1-2 sentences, be encouraging).
+For "critical": Describe any health concerns or areas for improvement (1-2 sentences, be constructive).
+
+Focus on:
+- Sugar intake (max 22g/day for women, 37g/day for men)
+- Saturated fat (max 10% of total calories)
+- Fiber (min 25g/day for women, 30g/day for men)  
+- Protein (min 0.8g per kg body weight)
+- Overall calorie balance vs their goal
+
+Be concise and actionable. If everything looks good, say so. If there are issues, prioritize the most important one.
 """;
+
 
   // Composed prompts (multi-image addition is added dynamically in analyzeImages)
   static String get _essentialPrompt =>
@@ -187,10 +172,12 @@ For each ingredient, provide:
       systemInstruction: Content.text(_searchPrompt),
     );
 
-    // Evaluation Model (health evaluation)
+    // Evaluation Model (health evaluation) - using lite model
     _evaluationModel = FirebaseAI.vertexAI(location: 'global').generativeModel(
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.5-flash-lite',
       generationConfig: GenerationConfig(
+        responseMimeType: 'application/json',
+        responseSchema: jsonSchema_aievaluation,
       ),
       systemInstruction: Content.text(_aiEvaluationPrompt_daysummarie),
     );
