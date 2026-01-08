@@ -720,6 +720,12 @@ class FoodLogScreenState extends State<FoodLogScreen> {
       final goals = await MealRepository.getUserGoals();
       final goalDescription = goals.isGainMode ? 'gain weight/muscle' : 'lose weight/maintain';
 
+      // Build meals list with ingredients
+      final mealDescriptions = _selectedDayMeals.map((meal) {
+        final ingredients = meal.ingredients.map((i) => i.name).join(', ');
+        return '${meal.name}: $ingredients';
+      }).toList();
+
       // Call evaluation
       final evaluation = await GeminiService.evaluateDailyHealth(
         gender: settings.gender,
@@ -734,6 +740,7 @@ class FoodLogScreenState extends State<FoodLogScreen> {
         totalSaturatedFat: selectedDay.totalSaturatedFat,
         totalFiber: selectedDay.totalFiber,
         totalSugar: selectedDay.totalSugar,
+        meals: mealDescriptions,
       );
 
       if (mounted && evaluation != null) {

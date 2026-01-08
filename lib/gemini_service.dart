@@ -114,7 +114,7 @@ For "good": Describe what they did well today (1-2 sentences, be encouraging).
 For "critical": Describe any health concerns or areas for improvement (1-2 sentences, be constructive).
 
 Focus on:
-- Sugar intake (max 22g/day for women, 37g/day for men)
+- total sugar intake (max 22g/day for women, 37g/day for men)
 - Saturated fat (max 10% of total calories)
 - Fiber (min 25g/day for women, 30g/day for men)  
 - Protein (min 0.8g per kg body weight)
@@ -328,6 +328,7 @@ Be concise and actionable. If everything looks good, say so. If there are issues
     required double totalSaturatedFat,
     required double totalFiber,
     required double totalSugar,
+    required List<String> meals, // List of meal descriptions with ingredients
   }) async {
     if (_evaluationModel == null) {
       throw Exception('Evaluation model not initialized.');
@@ -361,11 +362,18 @@ Today's Consumption:
 - Carbohydrates: ${totalCarbs.toStringAsFixed(1)}g
 - Fat: ${totalFat.toStringAsFixed(1)}g
 - Saturated Fat: ${totalSaturatedFat.toStringAsFixed(1)}g (${saturatedFatPercent.toStringAsFixed(1)}% of calories - limit: <10%)
-- Fiber: ${totalFiber.toStringAsFixed(1)}g (target: ≥${minFiber}g)
-- Sugar: ${totalSugar.toStringAsFixed(1)}g (limit: <${maxSugar}g)
+- Fiber: ${totalFiber.toStringAsFixed(1)}g (min target: ≥${minFiber}g)
+- Sugar: ${totalSugar.toStringAsFixed(1)}g (max limit: <${maxSugar}g)
 
-Please provide a brief, direct health evaluation for this day. Highlight what was done well and give 1-2 actionable suggestions for improvement if needed.
+Today's Meals:
+${meals.map((m) => '- $m').join('\n')}
+
+Provide a brief, direct health evaluation for this day. Only focus on the present information and do not make any predictions or assumptions!
 """;
+
+    print('=== AI Evaluation Prompt ===');
+    print(prompt);
+    print('============================');
 
     final content = [Content.text(prompt)];
     final response = await _evaluationModel!.generateContent(content);
