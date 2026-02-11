@@ -424,7 +424,7 @@ class AddFoodScreenState extends State<AddFoodScreen> {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('🚫 No food detected in the image(s). Please try again with a food photo.'),
+            content: Text('🚫 No food was recognised'),
             backgroundColor: AppTheme.negativeColor,
             duration: Duration(seconds: 4),
           ),

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:firebase_ai/firebase_ai.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:flutter/foundation.dart';
@@ -86,26 +88,41 @@ IMPORTANT for multiple images:
 
 
   // Search-specific addition
-  static const String _searchAddition = """
+  static const String _searchPrompt = """
 
-When looking up ingredients:
+You are a nutrition expert providing nutritional information for a given ingredient.
 1. Use Google Search to find accurate, up-to-date nutritional information
 2. Provide COMPLETE nutritional values per standard serving (typically 100g unless specified)
 3. Be accurate and use reliable nutritional databases
 4. If the ingredient is ambiguous (e.g., "chicken"), default to the most common form (e.g., "chicken breast, cooked")
+
+Always return the nutritional information in the following JSON format and return nothing else:
+For each ingredient, provide the values per 100g if not specified otherwise:
+- Calories (kcal), 
+- Protein (g), 
+- Carbohydrates (g), 
+- Sugar (g)
+- Total Fat (g), 
+- Saturated Fat (g), 
+- Unsaturated Fat (g), 
+- Fiber (g)
+Return only the JSON format and nothing else!
 """;
 
   static const String _audioAddition = """
 
-Listen to this audio recording where the user describes what they ate.
-Identify all the food items and ingredients mentioned, estimate reasonable portions,
-and provide nutritional information for each.
-If the user mentions specific quantities, use those. Otherwise, estimate typical serving sizes.
+Listen to this audio recording. First, determine if the user is describing food or something else.
 
-Your task:
-1. Identify ALL ingredients mentioned
-2. extract or estimate the quantity of each ingredient (convert to grams/ml)
-3. Provide nutritional values for EACH ingredient separately
+Set "image_classification" to one of:
+- "food" - the user is describing a food dish, meal, or ingredient
+- "no_food_no_label" - the user is NOT describing food (random speech, unrelated topic, etc.)
+
+If "no_food_no_label": return minimal data with no ingredients.
+
+If "food": identify ALL food items and ingredients mentioned.
+- Extract or estimate the quantity of each ingredient (convert to grams/ml)
+- Provide nutritional values for EACH ingredient separately
+- If the user mentions specific quantities, use those. Otherwise, estimate typical serving sizes.
 
 Convert all amounts to grams (g) or milliliters (ml).
 
@@ -144,8 +161,6 @@ Be concise and actionable. If everything looks good, say so. If there are issues
   static String get _comprehensivePrompt =>
       _basePrompt + _comprehensiveNutrientsAddition + _aiEvaluationPrompt;
 
-  static String get _searchPrompt =>
-      _basePrompt  + _comprehensiveNutrientsAddition + _searchAddition;
 
   static String get _audioPrompt => _audioAddition;
 
@@ -174,16 +189,13 @@ Be concise and actionable. If everything looks good, say so. If there are issues
       systemInstruction: Content.text(_comprehensivePrompt),
     );
 
-    // Search Model with Google Search (uses comprehensive schema)
+    // Search Model with Google Search (no schema - controlled generation not supported)
     _searchModel = FirebaseAI.vertexAI(location: 'europe-west1', appCheck: FirebaseAppCheck.instance).generativeModel(
       model: 'gemini-2.5-flash-lite',
       tools: [Tool.googleSearch()],
-      generationConfig: GenerationConfig(
-        responseMimeType: 'application/json',
-        responseSchema: jsonSchema_comprehensiveNutrition,
-      ),
       systemInstruction: Content.text(_searchPrompt),
     );
+
 
     // Evaluation Model (health evaluation) - using lite model
     _evaluationModel = FirebaseAI.vertexAI(location: 'europe-west1', appCheck: FirebaseAppCheck.instance).generativeModel(
@@ -264,22 +276,244 @@ Be concise and actionable. If everything looks good, say so. If there are issues
   // ============================================
 
   /// Search for ingredient nutritional information using Google Search
-  /// Returns comprehensive nutritional data (macros + vitamins/minerals)
-  static Future<String?> searchIngredient(
-    String ingredientName, {
-    String? quantity,
-  }) async {
+  /// Returns comprehensive nutritional data as structured JSON matching the analysis schema.
+  ///
+  /// [searchText] - User's search input (e.g. "chicken breast", "200g rice", "1 cup oatmeal").
+  /// The model infers quantities from the text.
+  static Future<String?> searchIngredient(String searchText) async {
     if (_searchModel == null) {
       throw Exception('Search model not initialized.');
     }
 
-    final prompt = quantity != null
-        ? "Look up the complete nutritional information for $quantity of $ingredientName. Return as a single ingredient in a dish."
-        : "Look up the complete nutritional information for $ingredientName (per 100g standard serving). Return as a single ingredient in a dish.";
+    final searchPrompt = "Look up the complete nutritional information for: $searchText\n\n";
 
-    final content = [Content.text(prompt)];
-    final response = await _searchModel!.generateContent(content);
-    return response.text;
+    final searchContent = [Content.text(searchPrompt)];
+    final searchResponse = await _searchModel!.generateContent(searchContent);
+    final rawNutritionText = searchResponse.text;
+
+    debugPrint('=== [searchIngredient] Step 1: Raw model response ===');
+    debugPrint(rawNutritionText ?? '(null)');
+    debugPrint('=== [searchIngredient] End Step 1 ===');
+
+    if (rawNutritionText == null || rawNutritionText.trim().isEmpty) {
+      return null;
+    }
+
+    return _extractAndFormatNutritionJson(rawNutritionText, searchText);
+  }
+
+  /// Extracts JSON from model response (handles ```json, extra text) and formats to schema.
+  static String? _extractAndFormatNutritionJson(String rawText, String searchText) {
+    debugPrint('=== [searchIngredient] Step 2: Extract JSON from response ===');
+    final jsonStr = _extractJsonFromResponse(rawText);
+    if (jsonStr == null) {
+      debugPrint('Failed to extract JSON from response');
+      return null;
+    }
+    debugPrint('Extracted JSON string:\n$jsonStr');
+    debugPrint('=== [searchIngredient] End Step 2 ===');
+
+    try {
+      debugPrint('=== [searchIngredient] Step 3: Parse and format to schema ===');
+      final decoded = jsonDecode(jsonStr);
+
+      // Handle both JSON objects and arrays
+      Map<String, dynamic>? parsed;
+      List<Map<String, dynamic>>? parsedList;
+
+      if (decoded is Map<String, dynamic>) {
+        parsed = decoded;
+      } else if (decoded is List && decoded.isNotEmpty) {
+        // Array of ingredients — wrap into ingredients list
+        parsedList = decoded
+            .whereType<Map<String, dynamic>>()
+            .toList();
+      }
+
+      if (parsed == null && (parsedList == null || parsedList.isEmpty)) {
+        debugPrint('Parsed result is null or empty');
+        return null;
+      }
+
+      final Map<String, dynamic> formatted;
+      if (parsedList != null) {
+        // Model returned an array — normalize each item as an ingredient
+        final ingredients = parsedList
+            .map((item) => _normalizeIngredient(_flattenMap(_lowercaseKeys(item)), searchText))
+            .toList();
+        formatted = {
+          'image_classification': 'food',
+          'ingredients': ingredients,
+          'dishName': searchText,
+          'confidence': 1.0,
+          'analysisNotes': '',
+          'aiEvaluation': '',
+          'isHighlyProcessed': false,
+        };
+        debugPrint('Formatted ${ingredients.length} ingredients from array');
+      } else {
+        debugPrint('Parsed object keys: ${parsed!.keys.toList()}');
+        formatted = _formatToComprehensiveSchema(_flattenMap(_lowercaseKeys(parsed)), searchText);
+      }
+
+      final result = jsonEncode(formatted);
+      debugPrint('Formatted result:\n$result');
+      debugPrint('=== [searchIngredient] End Step 3 ===');
+
+      return result;
+    } catch (e) {
+      debugPrint('Parse/format failed: $e');
+      return null;
+    }
+  }
+
+  /// Extracts JSON from text that may contain markdown code fences or extra prose.
+  static String? _extractJsonFromResponse(String text) {
+    final trimmed = text.trim();
+
+    // 1. Try code fence: ```json ... ``` or ``` ... ```
+    final codeFence = RegExp(r'```(?:json)?\s*\n?([\s\S]*?)\n?```');
+    final fenceMatch = codeFence.firstMatch(trimmed);
+    if (fenceMatch != null) {
+      final extracted = fenceMatch.group(1)?.trim();
+      if (extracted != null && extracted.isNotEmpty) {
+        debugPrint('  -> Extracted via code fence (```json or ```)');
+        return extracted;
+      }
+    }
+
+    // 2. Try to find JSON object: from first { to last }
+    final braceMatch = RegExp(r'\{[\s\S]*\}').firstMatch(trimmed);
+    if (braceMatch != null) {
+      debugPrint('  -> Extracted via brace match {...}');
+      return braceMatch.group(0);
+    }
+
+    debugPrint('  -> No JSON found');
+    return null;
+  }
+
+  /// Converts parsed model output to comprehensive schema format.
+  /// Expects keys already lowercased via _lowercaseKeys.
+  static Map<String, dynamic> _formatToComprehensiveSchema(Map<String, dynamic> parsed, String searchText) {
+    // Model may return flat object or already have ingredients array
+    List<Map<String, dynamic>> ingredientsList = [];
+    if (parsed['ingredients'] is List) {
+      for (final item in parsed['ingredients'] as List) {
+        if (item is Map<String, dynamic>) {
+          ingredientsList.add(_normalizeIngredient(_flattenMap(_lowercaseKeys(item)), searchText));
+        }
+      }
+    }
+    // If no ingredients array, treat the whole object as a single flat ingredient
+    if (ingredientsList.isEmpty) {
+      ingredientsList.add(_normalizeIngredient(parsed, searchText));
+    }
+
+    return {
+      'image_classification': parsed['image_classification'] ?? 'food',
+      'ingredients': ingredientsList,
+      'dishName': parsed['dishname'] ?? parsed['name'] ?? searchText,
+      'confidence': _toDouble(parsed['confidence']) ?? 1.0,
+      'analysisNotes': parsed['analysisnotes'] ?? '',
+      'aiEvaluation': parsed['aievaluation'] ?? parsed['ai_eval'] ?? '',
+      'isHighlyProcessed': parsed['ishighlyprocessed'] == true,
+    };
+  }
+
+  /// Reads a value from the map trying multiple key variants (camelCase and snake_case).
+  static double _nutrient(Map<String, dynamic> m, List<String> keys) {
+    for (final key in keys) {
+      final v = _toDouble(m[key]);
+      if (v != null) return v;
+    }
+    return 0;
+  }
+
+  static Map<String, dynamic> _normalizeIngredient(Map<String, dynamic> m, String searchText) {
+    return {
+      'name': m['name'] ?? m['ingredient'] ?? m['ingedient'] ?? searchText,
+      'quantity': m['quantity'] ?? m['serving_size'] ?? '100g',
+      'calories': _nutrient(m, ['calories', 'kcal', 'energy']),
+      'protein': _nutrient(m, ['protein']),
+      'carbs': _nutrient(m, ['carbs', 'carbohydrates', 'total_carbohydrates']),
+      'sugar': _nutrient(m, ['sugar', 'sugars', 'total_sugar']),
+      'fat': _nutrient(m, ['fat', 'total_fat', 'totalfat']),
+      'fiber': _nutrient(m, ['fiber', 'dietary_fiber', 'dietaryfiber']),
+      'saturatedFat': _nutrient(m, ['saturatedfat', 'saturated_fat']),
+      'unsaturatedFat': _nutrient(m, ['unsaturatedfat', 'unsaturated_fat']),
+      'omega3': _nutrient(m, ['omega3', 'omega_3', 'omega-3']),
+      'omega6': _nutrient(m, ['omega6', 'omega_6', 'omega-6']),
+      'transFat': _nutrient(m, ['transfat', 'trans_fat']),
+      'sodium': _nutrient(m, ['sodium']),
+      'potassium': _nutrient(m, ['potassium']),
+      'calcium': _nutrient(m, ['calcium']),
+      'magnesium': _nutrient(m, ['magnesium']),
+      'phosphorus': _nutrient(m, ['phosphorus']),
+      'iron': _nutrient(m, ['iron']),
+      'zinc': _nutrient(m, ['zinc']),
+      'selenium': _nutrient(m, ['selenium']),
+      'iodine': _nutrient(m, ['iodine']),
+      'copper': _nutrient(m, ['copper']),
+      'manganese': _nutrient(m, ['manganese']),
+      'chromium': _nutrient(m, ['chromium']),
+      'vitaminA': _nutrient(m, ['vitamina', 'vitamin_a']),
+      'vitaminD': _nutrient(m, ['vitamind', 'vitamin_d']),
+      'vitaminE': _nutrient(m, ['vitamine', 'vitamin_e']),
+      'vitaminK': _nutrient(m, ['vitamink', 'vitamin_k']),
+      'vitaminC': _nutrient(m, ['vitaminc', 'vitamin_c']),
+      'thiamin': _nutrient(m, ['thiamin', 'vitamin_b1', 'vitaminb1']),
+      'riboflavin': _nutrient(m, ['riboflavin', 'vitamin_b2', 'vitaminb2']),
+      'niacin': _nutrient(m, ['niacin', 'vitamin_b3', 'vitaminb3']),
+      'pantothenicAcid': _nutrient(m, ['pantothenicacid', 'pantothenic_acid', 'vitamin_b5', 'vitaminb5']),
+      'vitaminB6': _nutrient(m, ['vitaminb6', 'vitamin_b6']),
+      'biotin': _nutrient(m, ['biotin', 'vitamin_b7', 'vitaminb7']),
+      'folate': _nutrient(m, ['folate', 'vitamin_b9', 'vitaminb9', 'folic_acid']),
+      'vitaminB12': _nutrient(m, ['vitaminb12', 'vitamin_b12']),
+      'choline': _nutrient(m, ['choline']),
+      'cholesterol': _nutrient(m, ['cholesterol']),
+    };
+  }
+
+  /// Lowercases and normalizes all keys in a map so lookups work regardless of casing.
+  /// e.g. "Total Fat" → "total_fat", "Serving Size" → "serving_size", "Calories" → "calories"
+  static Map<String, dynamic> _lowercaseKeys(Map<String, dynamic> m) {
+    return m.map((key, value) {
+      final normalized = key.toLowerCase().replaceAll(' ', '_');
+      return MapEntry(normalized, value);
+    });
+  }
+
+  /// Recursively flattens nested sub-objects into a single flat map.
+  /// e.g. {"name": "X", "info": {"per_100g": {"calories": 100}}}
+  ///   → {"name": "X", "calories": 100}
+  /// Non-map values at any level are kept; map values are recursively merged.
+  static Map<String, dynamic> _flattenMap(Map<String, dynamic> m) {
+    final result = <String, dynamic>{};
+    for (final entry in m.entries) {
+      if (entry.value is Map<String, dynamic>) {
+        // Recursively flatten nested maps and merge into result
+        result.addAll(_flattenMap(entry.value as Map<String, dynamic>));
+      } else {
+        result[entry.key] = entry.value;
+      }
+    }
+    return result;
+  }
+
+  static double? _toDouble(dynamic v) {
+    if (v == null) return null;
+    if (v is num) return v.toDouble();
+    if (v is String) {
+      final s = v.trim();
+      // Handle N/A, n/a, etc.
+      if (s.isEmpty || s.toLowerCase() == 'n/a') return null;
+      // Strip unit suffixes like "13.5g", "45.1mg", "2.4mcg", "100kcal"
+      final match = RegExp(r'^([\d.]+)').firstMatch(s);
+      if (match != null) return double.tryParse(match.group(1)!);
+      return double.tryParse(s);
+    }
+    return null;
   }
 
   // ============================================

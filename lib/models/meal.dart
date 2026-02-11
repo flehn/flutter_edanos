@@ -9,7 +9,7 @@ class NotFoodException implements Exception {
   final String? classification;
   
   NotFoodException({
-    this.message = 'No food was recognized in this image',
+    this.message = 'No food was recognised',
     this.imageBytes,
     this.classification,
   });
