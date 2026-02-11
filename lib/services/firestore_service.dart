@@ -97,13 +97,6 @@ class FirestoreService {
     }
   }
 
-  /// Get a single meal by ID
-  static Future<Meal?> getMeal(String mealId) async {
-    final doc = await _mealsRef.doc(mealId).get();
-    if (!doc.exists) return null;
-    return Meal.fromFirestore(doc.data()!);
-  }
-
   /// Get all meals for a specific date
   static Future<List<Meal>> getMealsForDate(DateTime date) async {
     final startOfDay = DateTime(date.year, date.month, date.day);
@@ -144,40 +137,6 @@ class FirestoreService {
     
     if (snapshot.docs.isEmpty) return null;
     return Meal.fromFirestore(snapshot.docs.first.data()).scannedAt;
-  }
-
-  /// Stream of meals for today (real-time updates)
-  static Stream<List<Meal>> streamMealsForToday() {
-    final today = DateTime.now();
-    final startOfDay = DateTime(today.year, today.month, today.day);
-    final endOfDay = startOfDay.add(const Duration(days: 1));
-
-    return _mealsRef
-        .where(
-          'scannedAt',
-          isGreaterThanOrEqualTo: startOfDay.toIso8601String(),
-        )
-        .where('scannedAt', isLessThan: endOfDay.toIso8601String())
-        .orderBy('scannedAt', descending: true)
-        .snapshots()
-        .map(
-          (snapshot) => snapshot.docs
-              .map((doc) => Meal.fromFirestore(doc.data()))
-              .toList(),
-        );
-  }
-
-  /// Stream of all meals (real-time updates)
-  static Stream<List<Meal>> streamAllMeals({int limit = 50}) {
-    return _mealsRef
-        .orderBy('scannedAt', descending: true)
-        .limit(limit)
-        .snapshots()
-        .map(
-          (snapshot) => snapshot.docs
-              .map((doc) => Meal.fromFirestore(doc.data()))
-              .toList(),
-        );
   }
 
   // ============================================
@@ -579,6 +538,7 @@ class QuickAddItem {
       id: DateTime.now().microsecondsSinceEpoch.toString(),
       name: name,
       scannedAt: DateTime.now(),
+      imageUrl: imageUrl,
       ingredients: [
         Ingredient(
           id: DateTime.now().microsecondsSinceEpoch.toString(),

@@ -4,14 +4,22 @@ import 'package:image_picker/image_picker.dart';
 class ImagePickerService {
   static final ImagePicker _picker = ImagePicker();
 
+  /// Max dimension (width or height) for all images.
+  /// Images are resized by the native platform keeping aspect ratio.
+  /// 896px is optimal for Gemini vision models and keeps Storage costs low.
+  static const double _maxDimension = 896;
+
+  /// JPEG quality for all images (0-100).
+  static const int _imageQuality = 85;
+
   /// Pick an image from the camera
   static Future<Uint8List?> takePhoto() async {
     try {
       final XFile? image = await _picker.pickImage(
         source: ImageSource.camera,
-        imageQuality: 85, // Optimize for analysis while maintaining quality
-        maxWidth: 1024, // Reasonable size for AI analysis
-        maxHeight: 1024,
+        imageQuality: _imageQuality,
+        maxWidth: _maxDimension,
+        maxHeight: _maxDimension,
       );
 
       if (image != null) {
@@ -29,9 +37,9 @@ class ImagePickerService {
     try {
       final XFile? image = await _picker.pickImage(
         source: ImageSource.gallery,
-        imageQuality: 85, // Optimize for analysis while maintaining quality
-        maxWidth: 1024, // Reasonable size for AI analysis
-        maxHeight: 1024,
+        imageQuality: _imageQuality,
+        maxWidth: _maxDimension,
+        maxHeight: _maxDimension,
       );
 
       if (image != null) {

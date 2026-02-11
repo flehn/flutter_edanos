@@ -23,6 +23,9 @@ class FoodLogScreen extends StatefulWidget {
 }
 
 class FoodLogScreenState extends State<FoodLogScreen> {
+  // Pre-compiled regex for number formatting (thousands separator)
+  static final _thousandsSepRegex = RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))');
+
   /// Public method to refresh data (called when tab becomes active or after meal changes)
   void refresh() {
     _weekCache.clear(); // Clear all cache to ensure fresh data if changes happened in other tabs
@@ -615,7 +618,7 @@ class FoodLogScreenState extends State<FoodLogScreen> {
             value < 0
                 ? '${value.abs()}'
                 : value.toString().replaceAllMapped(
-                    RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+                    _thousandsSepRegex,
                     (Match m) => '${m[1]}.',
                   ),
             style: TextStyle(
@@ -1174,24 +1177,6 @@ class FoodLogScreenState extends State<FoodLogScreen> {
     );
   }
 
-  /// Build the 7-day week view starting from Monday of the selected week
-  List<Widget> _buildWeekDays() {
-    // Find Monday of the week containing _selectedDate
-    final weekday = _selectedDate.weekday; // 1 = Monday, 7 = Sunday
-    final monday = _selectedDate.subtract(Duration(days: weekday - 1));
-    
-    // Load this week's data
-    _loadWeekDataForDate(monday);
-    
-    return List.generate(7, (index) {
-      final date = monday.add(Duration(days: index));
-      final summary = _getSummaryForDate(date);
-      return Expanded(
-        child: _buildDayBarFromSummary(date, summary),
-      );
-    });
-  }
-
   Widget _buildDayBarFromSummary(DateTime date, DailySummary day) {
     final isSelected = date.year == _selectedDate.year &&
         date.month == _selectedDate.month &&
@@ -1202,23 +1187,9 @@ class FoodLogScreenState extends State<FoodLogScreen> {
     final carbs = day.totalCarbs.round();
     final fat = day.totalFat.round();
     
-    // Calculate max calories based on loaded summaries for visible context or fixed value
-    // For simplicity and stability, we can use a fixed reasonable max or dynamic based on user goal
-    // Or we can scan currently loaded weeks. Let's use a dynamic approach based on loaded data.
-    double maxCalories = 2500; // Default baseline
+    const double maxCalories = 2500;
     
-    // If we have data, try to find a better max, but scoped to local context if possible
-    // For now, let's stick to a reasonable static max or user goal to avoid jumpy bars
-    // Calorie goal would typically come from UserGoals or settings
-    // For now we use a default of 2500 if we can't easily access the goal here synchronously
-    // Prevent div by zero
-    if (maxCalories < 1000) maxCalories = 2000;
-    
-    final barHeight = maxCalories > 0
-        ? (calories / maxCalories) * 80 // Scale to 80px max height
-        : 0.0;
-    // Cap height
-    final clampedHeight = barHeight > 100 ? 100.0 : barHeight;
+    final barHeight = (calories / maxCalories) * 80;
 
     return GestureDetector(
       onTap: () => _onDaySelected(date),
@@ -1330,7 +1301,7 @@ class FoodLogScreenState extends State<FoodLogScreen> {
             child: Text(
               calories > 0
                   ? calories.toString().replaceAllMapped(
-                      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+                      _thousandsSepRegex,
                       (Match m) => '${m[1]}.',
                     )
                   : '0',
@@ -1505,31 +1476,10 @@ class FoodLogScreenState extends State<FoodLogScreen> {
     }
   }
 
-  Future<void> _addToQuickAdd(Meal meal) async {
-    try {
-      final quickAddItem = MealRepository.mealToQuickAdd(meal);
-      await MealRepository.saveQuickAddItem(quickAddItem);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${meal.name} added to Quick Add!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to add: $e'),
-            backgroundColor: AppTheme.negativeColor,
-          ),
-        );
-      }
-    }
-  }
-
   Widget _buildMealThumbnail(Meal meal) {
+    // Cache dimensions for thumbnails (2x for retina displays)
+    const int cacheSize = 128; // 64px * 2 for high-DPI
+
     // First try imageBytes (available for newly scanned meals in memory)
     if (meal.imageBytes != null) {
       return Image.memory(
@@ -1537,6 +1487,8 @@ class FoodLogScreenState extends State<FoodLogScreen> {
         fit: BoxFit.cover,
         width: 64,
         height: 64,
+        cacheWidth: cacheSize,
+        cacheHeight: cacheSize,
       );
     }
     
@@ -1547,6 +1499,8 @@ class FoodLogScreenState extends State<FoodLogScreen> {
         fit: BoxFit.cover,
         width: 64,
         height: 64,
+        cacheWidth: cacheSize,
+        cacheHeight: cacheSize,
         loadingBuilder: (context, child, loadingProgress) {
           if (loadingProgress == null) return child;
           return const Center(

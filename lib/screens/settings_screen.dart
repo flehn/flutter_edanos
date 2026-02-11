@@ -18,7 +18,6 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  bool _notifications = true;
   bool _mealReminders = true;
   bool _useDetailedAnalysis = false;
   bool _syncToHealth = false;
@@ -69,7 +68,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
       if (mounted) {
         setState(() {
-          _notifications = settings.notificationsEnabled;
           _mealReminders = settings.mealRemindersEnabled;
           _useDetailedAnalysis = settings.useDetailedAnalysis;
           _syncToHealth = settings.syncToHealth;
@@ -127,7 +125,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _saveSettingsToFirebase() async {
     try {
       final settings = UserSettings(
-        notificationsEnabled: _notifications,
+        notificationsEnabled: _mealReminders,
         mealRemindersEnabled: _mealReminders,
         useDetailedAnalysis: _useDetailedAnalysis,
         syncToHealth: _syncToHealth,

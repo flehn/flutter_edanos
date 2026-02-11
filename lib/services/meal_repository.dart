@@ -1,96 +1,17 @@
-import 'dart:convert';
-import 'dart:typed_data';
 import '../models/meal.dart';
-import '../gemini_service.dart';
 import 'firestore_service.dart';
 import 'storage_service.dart';
-import 'image_processor.dart';
 
 // Re-export FirestoreService types for convenience
 export 'firestore_service.dart' show DailySummary, QuickAddItem, UserGoals, UserSettings;
 
-/// Repository that combines Gemini analysis with Firestore persistence.
+/// Repository that combines Firestore persistence with Storage.
 /// 
 /// Single entry point for:
-/// - Analyzing food images with Gemini
 /// - Saving/loading meals to Firestore
 /// - Managing daily summaries and user goals
 class MealRepository {
   
-  // ============================================
-  // ANALYZE & CREATE MEAL
-  // ============================================
-
-  /// Analyze an image and create a Meal object (fast essential analysis - macros only)
-  /// 
-  /// Image is preprocessed (converted to JPEG, resized to 768px max) before analysis.
-  static Future<Meal> analyzeImage(Uint8List imageBytes, {String? customPrompt}) async {
-    // Preprocess: convert to JPEG and resize to 768px max
-    final processedBytes = await ImageProcessor.preprocessImage(imageBytes);
-    
-    final resultJson = await GeminiService.analyzeImage(
-      processedBytes,
-      includeVitamins: false,
-      additionalPrompt: customPrompt,
-    );
-
-    if (resultJson == null) {
-      throw Exception('Failed to analyze image');
-    }
-
-    final data = jsonDecode(resultJson) as Map<String, dynamic>;
-    return Meal.fromGeminiJson(data, imageBytes: processedBytes);
-  }
-
-  /// Analyze with comprehensive data (slower but includes vitamins/minerals)
-  /// 
-  /// Image is preprocessed (converted to JPEG, resized to 768px max) before analysis.
-  static Future<Meal> analyzeImageComplete(Uint8List imageBytes, {String? customPrompt}) async {
-    // Preprocess: convert to JPEG and resize to 768px max
-    final processedBytes = await ImageProcessor.preprocessImage(imageBytes);
-    
-    final resultJson = await GeminiService.analyzeImage(
-      processedBytes,
-      includeVitamins: true,
-      additionalPrompt: customPrompt,
-    );
-
-    if (resultJson == null) {
-      throw Exception('Failed to analyze image');
-    }
-
-    final data = jsonDecode(resultJson) as Map<String, dynamic>;
-    return Meal.fromGeminiJson(data, imageBytes: processedBytes);
-  }
-
-  /// Analyze multiple images (each image = one ingredient, combined into one dish)
-  /// 
-  /// All images are preprocessed (converted to JPEG, resized to 768px max) before analysis.
-  static Future<Meal> analyzeMultipleImages(
-    List<Uint8List> imageBytesList, {
-    bool includeVitamins = false,
-    String? customPrompt,
-  }) async {
-    // Preprocess all images
-    final processedImages = await Future.wait(
-      imageBytesList.map((bytes) => ImageProcessor.preprocessImage(bytes)),
-    );
-    
-    final resultJson = await GeminiService.analyzeImages(
-      processedImages,
-      includeVitamins: includeVitamins,
-      additionalPrompt: customPrompt,
-    );
-
-    if (resultJson == null) {
-      throw Exception('Failed to analyze images');
-    }
-
-    final data = jsonDecode(resultJson) as Map<String, dynamic>;
-    // Use the first image as the meal image
-    return Meal.fromGeminiJson(data, imageBytes: processedImages.isNotEmpty ? processedImages.first : null);
-  }
-
   // ============================================
   // MEAL CRUD
   // ============================================
@@ -105,23 +26,6 @@ class MealRepository {
       );
     }
     return await FirestoreService.saveMeal(meal);
-  }
-
-  /// Upload a no-food image in background (for analytics/debugging)
-  /// 
-  /// Call this when catching NotFoodException to still upload the image.
-  /// This runs without waiting for completion (fire-and-forget).
-  static void uploadNoFoodImageInBackground(Uint8List imageBytes, {String? classification}) {
-    final id = 'nofood_${DateTime.now().microsecondsSinceEpoch}';
-    // Fire and forget - don't await
-    StorageService.storeImage(
-      imageBytes, 
-      id,
-      classification: classification ?? 'no_food_no_label',
-    ).catchError((e) {
-      // Silently ignore upload errors for rejected images
-      return '';
-    });
   }
 
   /// Update an existing meal
@@ -145,11 +49,6 @@ class MealRepository {
   /// Get meals for a specific date
   static Future<List<Meal>> getMealsForDate(DateTime date) async {
     return FirestoreService.getMealsForDate(date);
-  }
-
-  /// Stream meals for today (real-time updates)
-  static Stream<List<Meal>> streamTodayMeals() {
-    return FirestoreService.streamMealsForToday();
   }
 
   // ============================================

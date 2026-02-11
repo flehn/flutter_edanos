@@ -156,7 +156,7 @@ Be concise and actionable. If everything looks good, say so. If there are issues
 
     // Analysis Model - Essential (macros only)
     _analysisModelEssential = FirebaseAI.vertexAI(location: 'europe-west1', appCheck: FirebaseAppCheck.instance).generativeModel(
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.5-flash-lite',
       generationConfig: GenerationConfig(
         responseMimeType: 'application/json',
         responseSchema: jsonSchema_essentialNutrition,
@@ -166,7 +166,7 @@ Be concise and actionable. If everything looks good, say so. If there are issues
 
     // Analysis Model - Comprehensive (macros + vitamins/minerals)
     _analysisModelComprehensive = FirebaseAI.vertexAI(location: 'europe-west1', appCheck: FirebaseAppCheck.instance).generativeModel(
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.5-flash-lite',
       generationConfig: GenerationConfig(
         responseMimeType: 'application/json',
         responseSchema: jsonSchema_comprehensiveNutrition,

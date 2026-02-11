@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
+import '../theme/circle_progress_painter.dart';
 import '../services/meal_repository.dart';
 import '../services/firestore_service.dart';
 import '../services/health_service.dart';
@@ -436,7 +437,7 @@ class GoalsScreenState extends State<GoalsScreen> {
                 width: 72,
                 height: 72,
                 child: CustomPaint(
-                  painter: _CircleProgressPainter(
+                  painter: CircleProgressPainter(
                     progress: 1.0, // Full circle for background
                     progressColor: Colors.white,
                     backgroundColor: Colors.transparent,
@@ -450,7 +451,7 @@ class GoalsScreenState extends State<GoalsScreen> {
                 width: 72,
                 height: 72,
                 child: CustomPaint(
-                  painter: _CircleProgressPainter(
+                  painter: CircleProgressPainter(
                     progress: progress.clamp(0.0, 1.0),
                     progressColor: displayColor,
                     backgroundColor: Colors.transparent,
@@ -1055,86 +1056,3 @@ class _EditGoalsSheetState extends State<_EditGoalsSheet> {
   }
 }
 
-/// Custom painter for circular progress with rounded ends and dotted support
-class _CircleProgressPainter extends CustomPainter {
-  final double progress;
-  final Color progressColor;
-  final Color backgroundColor;
-  final double strokeWidth;
-  final bool isDotted;
-
-  _CircleProgressPainter({
-    required this.progress,
-    required this.progressColor,
-    required this.backgroundColor,
-    required this.strokeWidth,
-    this.isDotted = false,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = (size.width - strokeWidth) / 2;
-
-    if (isDotted) {
-      // Draw dotted circle
-      _drawDottedCircle(canvas, center, radius);
-    } else {
-      // Draw solid progress arc
-      if (progress > 0) {
-        final progressPaint = Paint()
-          ..color = progressColor
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = strokeWidth
-          ..strokeCap = StrokeCap.round;
-
-        const startAngle = -90 * 3.14159 / 180; // Start from top
-        final sweepAngle = progress * 2 * 3.14159;
-
-        canvas.drawArc(
-          Rect.fromCircle(center: center, radius: radius),
-          startAngle,
-          sweepAngle,
-          false,
-          progressPaint,
-        );
-      }
-    }
-  }
-
-  void _drawDottedCircle(Canvas canvas, Offset center, double radius) {
-    final paint = Paint()
-      ..color = progressColor
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth
-      ..strokeCap = StrokeCap.round;
-
-    // Draw dotted circle by drawing small arcs with visible gaps
-    const dotCount = 20; // Number of dots around the circle
-    const gapRatio = 0.9; // 90% of each segment is gap (smaller dots, bigger gaps)
-
-    const fullCircle = 2 * 3.14159;
-    final segmentAngle = fullCircle / dotCount;
-    final dotAngle = segmentAngle * (1 - gapRatio);
-
-    const startAngle = -90 * 3.14159 / 180; // Start from top
-
-    for (int i = 0; i < dotCount; i++) {
-      final angle = startAngle + (i * segmentAngle);
-      canvas.drawArc(
-        Rect.fromCircle(center: center, radius: radius),
-        angle,
-        dotAngle,
-        false,
-        paint,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _CircleProgressPainter oldDelegate) {
-    return oldDelegate.progress != progress ||
-        oldDelegate.progressColor != progressColor ||
-        oldDelegate.isDotted != isDotted;
-  }
-}

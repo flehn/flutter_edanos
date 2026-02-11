@@ -53,7 +53,6 @@ dependencies:
   record: ^6.0.0  # Audio recording for voice descriptions
   url_launcher: ^6.2.4  # For opening website links
   share_plus: ^12.0.1    # For sharing exported CSV
-  image: ^4.3.0         # Image processing (resize, convert to JPEG)
 
 dev_dependencies:
   flutter_test:
