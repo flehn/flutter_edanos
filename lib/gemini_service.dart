@@ -1,4 +1,5 @@
 import 'package:firebase_ai/firebase_ai.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:flutter/foundation.dart';
 import 'model_config.dart';
 import 'dart:typed_data';
@@ -22,15 +23,22 @@ class GeminiService {
 
   // System prompts - Base prompt with modular additions
   static const String _basePrompt = """
-You are EdanosAI Food Analyzer. You analyze food pictures. First you check if the picture is a nutritional label or an actual food dish. 
+You are EdanosAI Food Analyzer. You analyze food pictures. First you classify what type of image this is:
 
-Do one of the following three options depending on the input:
+Set "image_classification" to one of:
+- "food" - an actual food dish or meal
+- "nutritional_label_on_packed_product" - a nutritional label/table on a packaged product
+- "packaged_product_only" - the front of a packaged product WITHOUT the nutritional label visible
+- "no_food_no_label" - empty plates, random pictures, or anything that is not food-related
 
-1. In case of a nutritional label extract the nutritional values from the table per 100g! Save this as one single ingredient! 
-2. In case of an actual food dish, identify ALL individual ingredients with their nutritional values.
-3. In case the input does not depict either a food dish or a nutritional label, examples are random pictures or empty plates etc, then return "No valid input detected".
+Do one of the following depending on the classification:
 
-Your task:
+1. For "nutritional_label_on_packed_product": extract the nutritional values from the table per 100g! Save this as one single ingredient! 
+2. For "food": identify ALL individual ingredients with their nutritional values.
+3. For "packaged_product_only": identify the product and estimate nutritional values based on typical values for that product type.
+4. For "no_food_no_label": return minimal data with no ingredients.
+
+Your task for food analysis:
 1. Identify ALL ingredients visible or described
 2. Estimate the quantity of each ingredient (convert to grams/ml)
 3. Provide nutritional values for EACH ingredient separately
@@ -113,6 +121,10 @@ Based on the user's profile and daily consumption data provided, evaluate their 
 
 For "good": Describe what they did well today (1-2 sentences, be encouraging).
 For "critical": Describe any health concerns or areas for improvement (1-2 sentences, be constructive).
+For "processedFoodFeedback": Evaluate the processed food consumption based on the counts provided.
+  - If 0 processed foods were scanned: give an encouraging compliment (e.g. "Great job avoiding processed foods today!")
+  - If more than 50% of scanned items were processed: give a constructive warning about relying on processed foods
+  - Otherwise: give a brief neutral or mildly encouraging note
 
 Focus on:
 - total sugar intake (max 22g/day for women, 37g/day for men)
@@ -143,7 +155,7 @@ Be concise and actionable. If everything looks good, say so. If there are issues
     if (_isInitialized) return;
 
     // Analysis Model - Essential (macros only)
-    _analysisModelEssential = FirebaseAI.vertexAI(location: 'global').generativeModel(
+    _analysisModelEssential = FirebaseAI.vertexAI(location: 'europe-west1', appCheck: FirebaseAppCheck.instance).generativeModel(
       model: 'gemini-2.5-flash',
       generationConfig: GenerationConfig(
         responseMimeType: 'application/json',
@@ -153,7 +165,7 @@ Be concise and actionable. If everything looks good, say so. If there are issues
     );
 
     // Analysis Model - Comprehensive (macros + vitamins/minerals)
-    _analysisModelComprehensive = FirebaseAI.vertexAI(location: 'global').generativeModel(
+    _analysisModelComprehensive = FirebaseAI.vertexAI(location: 'europe-west1', appCheck: FirebaseAppCheck.instance).generativeModel(
       model: 'gemini-2.5-flash',
       generationConfig: GenerationConfig(
         responseMimeType: 'application/json',
@@ -163,7 +175,7 @@ Be concise and actionable. If everything looks good, say so. If there are issues
     );
 
     // Search Model with Google Search (uses comprehensive schema)
-    _searchModel = FirebaseAI.vertexAI(location: 'global').generativeModel(
+    _searchModel = FirebaseAI.vertexAI(location: 'europe-west1', appCheck: FirebaseAppCheck.instance).generativeModel(
       model: 'gemini-2.5-flash-lite',
       tools: [Tool.googleSearch()],
       generationConfig: GenerationConfig(
@@ -174,7 +186,7 @@ Be concise and actionable. If everything looks good, say so. If there are issues
     );
 
     // Evaluation Model (health evaluation) - using lite model
-    _evaluationModel = FirebaseAI.vertexAI(location: 'global').generativeModel(
+    _evaluationModel = FirebaseAI.vertexAI(location: 'europe-west1', appCheck: FirebaseAppCheck.instance).generativeModel(
       model: 'gemini-2.5-flash-lite',
       generationConfig: GenerationConfig(
         responseMimeType: 'application/json',
@@ -330,6 +342,8 @@ Be concise and actionable. If everything looks good, say so. If there are issues
     required double totalFiber,
     required double totalSugar,
     required List<String> meals, // List of meal descriptions with ingredients
+    required int totalMealCount,
+    required int processedMealCount,
   }) async {
     if (_evaluationModel == null) {
       throw Exception('Evaluation model not initialized.');
@@ -365,6 +379,11 @@ Today's Consumption:
 - Saturated Fat: ${totalSaturatedFat.toStringAsFixed(1)}g (${saturatedFatPercent.toStringAsFixed(1)}% of calories - limit: <10%)
 - Fiber: ${totalFiber.toStringAsFixed(1)}g (min target: ≥${minFiber}g)
 - Sugar: ${totalSugar.toStringAsFixed(1)}g (max limit: <${maxSugar}g)
+
+Processed Food Analysis:
+- Total meals scanned: $totalMealCount
+- Processed meals: $processedMealCount
+- Processed food ratio: ${totalMealCount > 0 ? (processedMealCount / totalMealCount * 100).toStringAsFixed(0) : 0}%
 
 Today's Meals:
 ${meals.map((m) => '- $m').join('\n')}

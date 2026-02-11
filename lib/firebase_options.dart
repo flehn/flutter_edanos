@@ -58,7 +58,7 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyC6RQlLp_7Y00_oofZ6VPpYMCezUQWtLpI',
-    appId: '1:540378750459:android:99fc81cbe4f4d13c66ff5e',
+    appId: '1:540378750459:android:87aba842828c904866ff5e',
     messagingSenderId: '540378750459',
     projectId: 'calorietracker-74c0d',
     storageBucket: 'calorietracker-74c0d.firebasestorage.app',
@@ -66,11 +66,11 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyAJn4TYuq6wly8Vw0P_P-dBPQjf2JqMbN0',
-    appId: '1:540378750459:ios:3e0a2bcac070356766ff5e', // Match plist
+    appId: '1:540378750459:ios:3e0a2bcac070356766ff5e',
     messagingSenderId: '540378750459',
     projectId: 'calorietracker-74c0d',
     storageBucket: 'calorietracker-74c0d.firebasestorage.app',
-    iosBundleId:
-        'brotherarts.EdanosAI.FoodNutritionScan.flutter', // Match plist
+    iosBundleId: 'brotherarts.EdanosAI.FoodNutritionScan.flutter',
   );
+
 }

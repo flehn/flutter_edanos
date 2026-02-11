@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
@@ -10,7 +11,12 @@ import 'meal_detail_screen.dart';
 
 /// Food Log Screen - Daily overview with weekly chart
 class FoodLogScreen extends StatefulWidget {
-  const FoodLogScreen({super.key});
+  final VoidCallback? onAddFood;
+  
+  const FoodLogScreen({
+    super.key,
+    this.onAddFood,
+  });
 
   @override
   FoodLogScreenState createState() => FoodLogScreenState();
@@ -19,17 +25,28 @@ class FoodLogScreen extends StatefulWidget {
 class FoodLogScreenState extends State<FoodLogScreen> {
   /// Public method to refresh data (called when tab becomes active or after meal changes)
   void refresh() {
+    _weekCache.clear(); // Clear all cache to ensure fresh data if changes happened in other tabs
     _refreshCurrentWeek();
   }
 
   /// Force refresh the current week's data (invalidates cache)
   /// Set clearEvaluation to true only when dishes are added/deleted
-  Future<void> _refreshCurrentWeek({bool clearEvaluation = true}) async {
+  /// If affectedDate is provided, also invalidates cache for that date's week
+  Future<void> _refreshCurrentWeek({bool clearEvaluation = true, DateTime? affectedDate}) async {
     final weekKey = _getWeekKey(_selectedDate);
     _weekCache.remove(weekKey); // Invalidate cache for current week
     
+    // If an affected date is provided and it's in a different week, invalidate that week too
+    if (affectedDate != null) {
+      final affectedWeekKey = _getWeekKey(affectedDate);
+      if (affectedWeekKey != weekKey) {
+        _weekCache.remove(affectedWeekKey);
+      }
+    }
+    
     // Only clear AI evaluation when dishes are added/deleted
     if (clearEvaluation) {
+      _skipEvaluationReload = true;
       setState(() {
         _dailyEvaluation = null;
         _isEvaluationExpanded = false;
@@ -37,6 +54,15 @@ class FoodLogScreenState extends State<FoodLogScreen> {
     }
     
     await _loadWeekDataForDate(_selectedDate);
+    
+    // Also load the affected week if it's different
+    if (affectedDate != null) {
+      final affectedWeekKey = _getWeekKey(affectedDate);
+      if (affectedWeekKey != weekKey) {
+        await _loadWeekDataForDate(affectedDate);
+      }
+    }
+    
     await _loadMealsForSelectedDay();
   }
   DateTime? _firstMealDate;
@@ -60,6 +86,14 @@ class FoodLogScreenState extends State<FoodLogScreen> {
   
   // Flag to prevent duplicate health data loading
   bool _healthDataLoaded = false;
+  
+  // Flag to skip evaluation reload (after meals added/deleted)
+  bool _skipEvaluationReload = false;
+
+  // Week range overlay state (shown while user scrolls the chart)
+  bool _showWeekRange = false;
+  String _weekRangeText = '';
+  Timer? _scrollEndTimer;
 
   @override
   void initState() {
@@ -69,6 +103,7 @@ class FoodLogScreenState extends State<FoodLogScreen> {
 
   @override
   void dispose() {
+    _scrollEndTimer?.cancel();
     _chartScrollController.dispose();
     super.dispose();
   }
@@ -79,7 +114,7 @@ class FoodLogScreenState extends State<FoodLogScreen> {
     _selectedDate = DateTime(now.year, now.month, now.day);
     
     try {
-      await _loadWeekDataForDate(now);
+      await _loadWeekDataForDate(_selectedDate);
       
       // 2. Fetch the start date of history
       final firstDate = await MealRepository.getFirstMealDate();
@@ -89,7 +124,9 @@ class FoodLogScreenState extends State<FoodLogScreen> {
       
       if (mounted) {
         setState(() {
-          _firstMealDate = firstDate ?? now;
+          _firstMealDate = firstDate != null
+              ? DateTime(firstDate.year, firstDate.month, firstDate.day)
+              : DateTime(now.year, now.month, now.day);
           _isChartReady = true;
         });
         
@@ -105,7 +142,7 @@ class FoodLogScreenState extends State<FoodLogScreen> {
       // Still mark chart as ready with default values to avoid infinite loading
       if (mounted) {
         setState(() {
-          _firstMealDate = now;
+          _firstMealDate = DateTime(now.year, now.month, now.day);
           _isChartReady = true;
         });
       }
@@ -124,7 +161,9 @@ class FoodLogScreenState extends State<FoodLogScreen> {
     // Reverse of _getWeekKey
     final mondayOffset = (DateTime(1970, 1, 1).weekday - 1);
     final daysSinceEpoch = (weekKey * 7) - mondayOffset;
-    return DateTime(1970, 1, 1).add(Duration(days: daysSinceEpoch));
+    final weekStart = DateTime(1970, 1, 1).add(Duration(days: daysSinceEpoch));
+    // Ensure the date is normalized to midnight to avoid timezone issues
+    return DateTime(weekStart.year, weekStart.month, weekStart.day);
   }
 
   Future<void> _loadWeekDataForDate(DateTime date) async {
@@ -193,33 +232,10 @@ class FoodLogScreenState extends State<FoodLogScreen> {
         });
       }
       
-      debugPrint('[FoodLog] Health data loaded: burned=$todayBurned');
+      // Health data loaded successfully
     } catch (e) {
       debugPrint('Error loading health data once: $e');
       _healthDataLoaded = false; // Allow retry on error
-    }
-  }
-
-  Future<void> _loadHealthData(DateTime weekStart) async {
-    if (!HealthService.isAvailable) return;
-    
-    try {
-      // Check if we have permissions
-      final hasPerms = await HealthService.hasPermissions();
-      if (!hasPerms) return;
-      
-      // Load burned calories for selected day
-      final todayBurned = await HealthService.getBurnedCaloriesForDate(_selectedDate);
-      
-      // Load weekly burned calories
-      final weeklyBurned = await HealthService.getWeeklyBurnedCalories(weekStart);
-      
-      setState(() {
-        _burnedCalories = todayBurned;
-        _weeklyBurnedCalories = weeklyBurned;
-      });
-    } catch (e) {
-      debugPrint('Error loading health data: $e');
     }
   }
 
@@ -235,13 +251,37 @@ class FoodLogScreenState extends State<FoodLogScreen> {
       
       if (cachedBurned != null) {
         setState(() => _burnedCalories = cachedBurned);
-      } else if (HealthService.isAvailable) {
-        // Only fetch if not in cache (e.g., viewing a different week)
+      } else if (_healthDataLoaded && HealthService.isAvailable) {
+        // Only fetch if health permissions were granted and data not in cache
         final burned = await HealthService.getBurnedCaloriesForDate(_selectedDate);
         setState(() => _burnedCalories = burned);
       }
+      
+      // Load saved evaluation for this day
+      await _loadSavedEvaluation();
     } catch (e) {
       debugPrint('Error loading meals: $e');
+    }
+  }
+
+  /// Load a previously saved evaluation for the selected date
+  Future<void> _loadSavedEvaluation() async {
+    // Skip reload if evaluation was deliberately cleared (meals changed)
+    if (_skipEvaluationReload) {
+      _skipEvaluationReload = false;
+      return;
+    }
+    
+    try {
+      final saved = await MealRepository.getDailyEvaluation(_selectedDate);
+      if (mounted) {
+        setState(() {
+          _dailyEvaluation = saved;
+          _isEvaluationExpanded = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading saved evaluation: $e');
     }
   }
 
@@ -253,9 +293,12 @@ class FoodLogScreenState extends State<FoodLogScreen> {
     setState(() {
       _selectedDate = date;
       _burnedCalories = cachedBurned;
+      // Reset evaluation state - will be loaded from Firestore in _loadMealsForSelectedDay
+      _dailyEvaluation = null;
+      _isEvaluationExpanded = false;
     });
     
-    // Load meals for new day (this will also update burned calories if cache miss)
+    // Load meals for new day (this will also update burned calories if cache miss and load saved evaluation)
     _loadMealsForSelectedDay();
     
     // Only load week data if not cached (to avoid re-triggering meal loads)
@@ -360,23 +403,86 @@ class FoodLogScreenState extends State<FoodLogScreen> {
               SliverToBoxAdapter(
                 child: SizedBox(
                   height: 140,
-                  child: ListView.builder(
-                    controller: _chartScrollController,
-                    scrollDirection: Axis.horizontal,
-                    itemCount: _getTotalDays(),
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    itemBuilder: (context, index) {
-                      final date = _getDateForIndex(index);
-                      // Defer data loading to avoid setState during build
-                      final weekKey = _getWeekKey(date);
-                      if (!_weekCache.containsKey(weekKey)) {
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          _loadWeekDataForDate(date);
-                        });
-                      }
-                      final summary = _getSummaryForDate(date);
-                      return _buildDayBarFromSummary(date, summary);
-                    },
+                  child: Stack(
+                    children: [
+                      NotificationListener<ScrollNotification>(
+                        onNotification: (notification) {
+                          if (notification is ScrollStartNotification &&
+                              notification.dragDetails != null) {
+                            _scrollEndTimer?.cancel();
+                            _onChartScrollUpdate();
+                          } else if (notification is ScrollUpdateNotification) {
+                            if (_showWeekRange) _onChartScrollUpdate();
+                          } else if (notification is ScrollEndNotification) {
+                            // Fade out after scrolling stops
+                            _scrollEndTimer?.cancel();
+                            _scrollEndTimer = Timer(
+                              const Duration(milliseconds: 800),
+                              () {
+                                if (mounted) {
+                                  setState(() => _showWeekRange = false);
+                                }
+                              },
+                            );
+                          }
+                          return false;
+                        },
+                        child: ListView.builder(
+                          controller: _chartScrollController,
+                          scrollDirection: Axis.horizontal,
+                          itemCount: _getTotalDays(),
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          itemBuilder: (context, index) {
+                            final date = _getDateForIndex(index);
+                            // Defer data loading to avoid setState during build
+                            final weekKey = _getWeekKey(date);
+                            if (!_weekCache.containsKey(weekKey)) {
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                _loadWeekDataForDate(date);
+                              });
+                            }
+                            final summary = _getSummaryForDate(date);
+                            return _buildDayBarFromSummary(date, summary);
+                          },
+                        ),
+                      ),
+                      // Week range overlay (fades in while user scrolls)
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        top: 4,
+                        child: IgnorePointer(
+                          child: AnimatedOpacity(
+                            opacity: _showWeekRange ? 1.0 : 0.0,
+                            duration: const Duration(milliseconds: 300),
+                            child: Center(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.surfaceDark.withOpacity(0.92),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: AppTheme.textTertiary.withOpacity(0.3),
+                                  ),
+                                ),
+                                child: Text(
+                                  _weekRangeText,
+                                  style: const TextStyle(
+                                    color: AppTheme.textPrimary,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -446,6 +552,25 @@ class FoodLogScreenState extends State<FoodLogScreen> {
                              style: TextStyle(
                                color: AppTheme.textTertiary,
                                fontSize: 16,
+                             ),
+                           ),
+                           const SizedBox(height: 24),
+                           GestureDetector(
+                             onTap: widget.onAddFood,
+                             child: Container(
+                               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                               decoration: BoxDecoration(
+                                 color: AppTheme.primaryBlue,
+                                 borderRadius: BorderRadius.circular(12),
+                               ),
+                               child: const Text(
+                                 'Scan a meal',
+                                 style: TextStyle(
+                                   color: Colors.white,
+                                   fontSize: 14,
+                                   fontWeight: FontWeight.w600,
+                                 ),
+                               ),
                              ),
                            ),
                          ],
@@ -578,17 +703,13 @@ class FoodLogScreenState extends State<FoodLogScreen> {
 
   /// Build the daily AI evaluation section
   Widget _buildDailyEvaluationSection() {
-    // Only show for today
-    if (!_isToday()) {
-      return const SizedBox.shrink();
-    }
-
     final canEvaluate = _hasMinimumMeals();
     final hasMeals = _selectedDayMeals.isNotEmpty;
+    final hasExistingEvaluation = _dailyEvaluation != null;
 
     // Build status message
     String statusMessage;
-    if (_dailyEvaluation != null) {
+    if (hasExistingEvaluation) {
       statusMessage = 'Tap to ${_isEvaluationExpanded ? 'collapse' : 'expand'}';
     } else if (!hasMeals) {
       statusMessage = 'Log a meal to enable evaluation';
@@ -607,7 +728,7 @@ class FoodLogScreenState extends State<FoodLogScreen> {
         children: [
           // Header (always visible)
           InkWell(
-            onTap: _dailyEvaluation != null
+            onTap: hasExistingEvaluation
                 ? () => setState(() => _isEvaluationExpanded = !_isEvaluationExpanded)
                 : null,
             borderRadius: BorderRadius.circular(12),
@@ -617,7 +738,7 @@ class FoodLogScreenState extends State<FoodLogScreen> {
                 children: [
                   Icon(
                     Icons.info_outline,
-                    color: canEvaluate ? AppTheme.primaryBlue : AppTheme.textTertiary,
+                    color: canEvaluate || hasExistingEvaluation ? AppTheme.primaryBlue : AppTheme.textTertiary,
                     size: 20,
                   ),
                   const SizedBox(width: 12),
@@ -628,7 +749,7 @@ class FoodLogScreenState extends State<FoodLogScreen> {
                         Text(
                           'Daily AI Evaluation',
                           style: TextStyle(
-                            color: canEvaluate ? AppTheme.textPrimary : AppTheme.textSecondary,
+                            color: canEvaluate || hasExistingEvaluation ? AppTheme.textPrimary : AppTheme.textSecondary,
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
                           ),
@@ -643,12 +764,30 @@ class FoodLogScreenState extends State<FoodLogScreen> {
                       ],
                     ),
                   ),
-                  if (_dailyEvaluation != null)
-                    Icon(
-                      _isEvaluationExpanded
-                          ? Icons.expand_less
-                          : Icons.expand_more,
-                      color: AppTheme.textTertiary,
+                  if (hasExistingEvaluation)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Re-evaluate button (only if enough meals)
+                        if (canEvaluate && !_isEvaluationLoading)
+                          GestureDetector(
+                            onTap: _runDailyEvaluation,
+                            child: const Padding(
+                              padding: EdgeInsets.only(right: 8),
+                              child: Icon(
+                                Icons.refresh,
+                                color: AppTheme.primaryBlue,
+                                size: 20,
+                              ),
+                            ),
+                          ),
+                        Icon(
+                          _isEvaluationExpanded
+                              ? Icons.expand_less
+                              : Icons.expand_more,
+                          color: AppTheme.textTertiary,
+                        ),
+                      ],
                     )
                   else if (_isEvaluationLoading)
                     const SizedBox(
@@ -680,7 +819,7 @@ class FoodLogScreenState extends State<FoodLogScreen> {
             ),
           ),
           // Expanded content
-          if (_dailyEvaluation != null && _isEvaluationExpanded)
+          if (hasExistingEvaluation && _isEvaluationExpanded)
             Container(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
               child: Column(
@@ -700,7 +839,7 @@ class FoodLogScreenState extends State<FoodLogScreen> {
                         Expanded(
                           child: Text(
                             _dailyEvaluation!['good'],
-                            style: TextStyle(
+                            style: const TextStyle(
                               color: AppTheme.textSecondary,
                               fontSize: 14,
                               height: 1.5,
@@ -723,7 +862,34 @@ class FoodLogScreenState extends State<FoodLogScreen> {
                         Expanded(
                           child: Text(
                             _dailyEvaluation!['critical'],
-                            style: TextStyle(
+                            style: const TextStyle(
+                              color: AppTheme.textSecondary,
+                              fontSize: 14,
+                              height: 1.5,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  
+                  // Processed food feedback section
+                  if (_dailyEvaluation!['processedFoodFeedback'] != null && 
+                      _dailyEvaluation!['processedFoodFeedback'].toString().isNotEmpty) ...[
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          _getProcessedFoodIcon(),
+                          color: _getProcessedFoodColor(),
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _dailyEvaluation!['processedFoodFeedback'],
+                            style: const TextStyle(
                               color: AppTheme.textSecondary,
                               fontSize: 14,
                               height: 1.5,
@@ -746,6 +912,24 @@ class FoodLogScreenState extends State<FoodLogScreen> {
     );
   }
 
+  /// Get icon for processed food feedback based on stored counts
+  IconData _getProcessedFoodIcon() {
+    final processedCount = _dailyEvaluation?['processedMealCount'] as int? ?? 0;
+    if (processedCount == 0) return Icons.eco;
+    final totalCount = _dailyEvaluation?['totalMealCount'] as int? ?? 1;
+    if (totalCount > 0 && processedCount / totalCount > 0.5) return Icons.warning_amber;
+    return Icons.info_outline;
+  }
+
+  /// Get color for processed food feedback based on stored counts
+  Color _getProcessedFoodColor() {
+    final processedCount = _dailyEvaluation?['processedMealCount'] as int? ?? 0;
+    if (processedCount == 0) return AppTheme.positiveColor;
+    final totalCount = _dailyEvaluation?['totalMealCount'] as int? ?? 1;
+    if (totalCount > 0 && processedCount / totalCount > 0.5) return AppTheme.warningColor;
+    return AppTheme.primaryBlue;
+  }
+
   /// Run the daily AI evaluation
   Future<void> _runDailyEvaluation() async {
     if (_isEvaluationLoading) return;
@@ -757,17 +941,24 @@ class FoodLogScreenState extends State<FoodLogScreen> {
       _userSettings ??= await MealRepository.getUserSettings();
       final settings = _userSettings!;
 
-      // Get today's summary
+      // Get selected day's summary
       final selectedDay = _getSummaryForDate(_selectedDate);
 
       // Determine user goal
       final goals = await MealRepository.getUserGoals();
       final goalDescription = goals.isGainMode ? 'gain weight/muscle' : 'lose weight/maintain';
 
-      // Build meals list with ingredients
+      // Count processed foods
+      final totalMealCount = _selectedDayMeals.length;
+      final processedMealCount = _selectedDayMeals
+          .where((meal) => meal.isHighlyProcessed == true)
+          .length;
+
+      // Build meals list with ingredients and processed status
       final mealDescriptions = _selectedDayMeals.map((meal) {
         final ingredients = meal.ingredients.map((i) => i.name).join(', ');
-        return '${meal.name}: $ingredients';
+        final processedTag = meal.isHighlyProcessed == true ? ' [PROCESSED]' : '';
+        return '${meal.name}$processedTag: $ingredients';
       }).toList();
 
       // Call evaluation
@@ -785,25 +976,41 @@ class FoodLogScreenState extends State<FoodLogScreen> {
         totalFiber: selectedDay.totalFiber,
         totalSugar: selectedDay.totalSugar,
         meals: mealDescriptions,
+        totalMealCount: totalMealCount,
+        processedMealCount: processedMealCount,
       );
 
       if (mounted && evaluation != null) {
         // Parse JSON response
+        Map<String, dynamic> evaluationData;
         try {
-          final parsed = jsonDecode(evaluation) as Map<String, dynamic>;
-          setState(() {
-            _dailyEvaluation = parsed;
-            _isEvaluationExpanded = true;
-            _isEvaluationLoading = false;
-          });
+          evaluationData = jsonDecode(evaluation) as Map<String, dynamic>;
         } catch (parseError) {
           debugPrint('JSON parse error: $parseError');
           // Fallback: wrap raw response
-          setState(() {
-            _dailyEvaluation = {'good': evaluation, 'critical': ''};
-            _isEvaluationExpanded = true;
-            _isEvaluationLoading = false;
-          });
+          evaluationData = {
+            'good': evaluation,
+            'critical': '',
+            'processedFoodFeedback': '',
+          };
+        }
+        
+        // Add processed food counts to the evaluation data for persistence
+        evaluationData['totalMealCount'] = totalMealCount;
+        evaluationData['processedMealCount'] = processedMealCount;
+        
+        setState(() {
+          _dailyEvaluation = evaluationData;
+          _isEvaluationExpanded = true;
+          _isEvaluationLoading = false;
+        });
+        
+        // Save to Firestore (overwrites any existing evaluation for this date)
+        // Done separately so a save error doesn't affect the display
+        try {
+          await MealRepository.saveDailyEvaluation(_selectedDate, evaluationData);
+        } catch (saveError) {
+          debugPrint('Failed to save evaluation to Firestore: $saveError');
         }
       }
     } catch (e) {
@@ -912,6 +1119,43 @@ class FoodLogScreenState extends State<FoodLogScreen> {
   String _getDayName(int index) {
     const days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
     return days[index];
+  }
+
+  /// Update the week range overlay based on current scroll position
+  void _onChartScrollUpdate() {
+    if (!_chartScrollController.hasClients) return;
+
+    final offset = _chartScrollController.offset;
+    final viewportWidth = _chartScrollController.position.viewportDimension;
+    const itemWidth = 52.0; // 48 width + 4 margin
+
+    final centerOffset = offset + viewportWidth / 2;
+    final centerIndex =
+        (centerOffset / itemWidth).floor().clamp(0, _getTotalDays() - 1);
+
+    final centerDate = _getDateForIndex(centerIndex);
+
+    // Get Monday and Sunday of that week
+    final monday = centerDate.subtract(Duration(days: centerDate.weekday - 1));
+    final sunday = monday.add(const Duration(days: 6));
+
+    final rangeText =
+        '${_formatShortDate(monday)} - ${_formatShortDate(sunday)}';
+
+    if (_weekRangeText != rangeText || !_showWeekRange) {
+      setState(() {
+        _weekRangeText = rangeText;
+        _showWeekRange = true;
+      });
+    }
+  }
+
+  /// Format date as DD.MM.YY
+  String _formatShortDate(DateTime date) {
+    final d = date.day.toString().padLeft(2, '0');
+    final m = date.month.toString().padLeft(2, '0');
+    final y = (date.year % 100).toString().padLeft(2, '0');
+    return '$d.$m.$y';
   }
 
   DailySummary _getSummaryForDate(DateTime date) {
@@ -1129,7 +1373,7 @@ class FoodLogScreenState extends State<FoodLogScreen> {
           );
           // If a meal was returned, its date changed - refresh the data
           if (result != null) {
-            _refreshCurrentWeek();
+            _refreshCurrentWeek(affectedDate: result.scannedAt);
           }
         },
         child: Container(
@@ -1203,6 +1447,7 @@ class FoodLogScreenState extends State<FoodLogScreen> {
     final mealIndex = _selectedDayMeals.indexWhere((m) => m.id == meal.id);
     final deletedMeal = meal;
     final mealId = meal.id;
+    final deletedMealDate = meal.scannedAt; // Store the date for cache invalidation
     
     debugPrint('🗑️ Attempting to delete meal: $mealId (${meal.name})');
     
@@ -1220,6 +1465,9 @@ class FoodLogScreenState extends State<FoodLogScreen> {
       debugPrint('🗑️ Calling MealRepository.deleteMeal for: $mealId');
       await MealRepository.deleteMeal(mealId);
       debugPrint('✅ Successfully deleted meal from Firebase: $mealId');
+      
+      // Invalidate cache for the week containing the deleted meal
+      _refreshCurrentWeek(affectedDate: deletedMealDate, clearEvaluation: true);
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

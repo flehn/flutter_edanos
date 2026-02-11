@@ -2,9 +2,17 @@ import 'dart:typed_data';
 import 'ingredient.dart';
 
 /// Exception thrown when the analyzed image does not contain food.
+/// Includes image data for background upload.
 class NotFoodException implements Exception {
   final String message;
-  NotFoodException([this.message = 'No food was recognized in this image']);
+  final Uint8List? imageBytes;
+  final String? classification;
+  
+  NotFoodException({
+    this.message = 'No food was recognized in this image',
+    this.imageBytes,
+    this.classification,
+  });
   
   @override
   String toString() => message;
@@ -39,6 +47,9 @@ class Meal {
   /// Whether the meal is considered highly processed by AI
   final bool? isHighlyProcessed;
 
+  /// Classification of the source image (food, nutritional_label_on_packed_product, packaged_product_only)
+  final String? imageClassification;
+
   Meal({
     required this.id,
     required this.name,
@@ -50,6 +61,7 @@ class Meal {
     this.analysisNotes,
     this.aiEvaluation,
     this.isHighlyProcessed,
+    this.imageClassification,
   });
 
   // ============================================
@@ -161,10 +173,13 @@ class Meal {
     required Uint8List? imageBytes,
     String? id,
   }) {
-    // Check if the image contains food
-    final isFood = json['is_food'] as bool? ?? true;
-    if (!isFood) {
-      throw NotFoodException();
+    // Check if the image contains food or a valid food product
+    final imageClassification = json['image_classification'] as String? ?? 'food';
+    if (imageClassification == 'no_food_no_label') {
+      throw NotFoodException(
+        imageBytes: imageBytes,
+        classification: imageClassification,
+      );
     }
 
     List<Ingredient> ingredientsList = [];
@@ -206,6 +221,7 @@ class Meal {
       isHighlyProcessed: _parseBool(json['isHighlyProcessed']) ??
           _parseBool(json['highlyProcessed']) ??
           _parseBool(json['highly_processed']),
+      imageClassification: imageClassification,
     );
   }
 
@@ -231,6 +247,7 @@ class Meal {
       if (analysisNotes != null) 'analysisNotes': analysisNotes,
       if (aiEvaluation != null) 'aiEvaluation': aiEvaluation,
       if (isHighlyProcessed != null) 'isHighlyProcessed': isHighlyProcessed,
+      if (imageClassification != null) 'imageClassification': imageClassification,
       // Store computed totals for quick queries
       'totalCalories': totalCalories,
       'totalProtein': totalProtein,
@@ -259,6 +276,7 @@ class Meal {
       analysisNotes: doc['analysisNotes'] as String?,
       aiEvaluation: doc['aiEvaluation'] as String?,
       isHighlyProcessed: doc['isHighlyProcessed'] as bool?,
+      imageClassification: doc['imageClassification'] as String?,
     );
   }
 
@@ -274,6 +292,7 @@ class Meal {
     String? analysisNotes,
     String? aiEvaluation,
     bool? isHighlyProcessed,
+    String? imageClassification,
   }) {
     return Meal(
       id: id ?? this.id,
@@ -286,6 +305,7 @@ class Meal {
       analysisNotes: analysisNotes ?? this.analysisNotes,
       aiEvaluation: aiEvaluation ?? this.aiEvaluation,
       isHighlyProcessed: isHighlyProcessed ?? this.isHighlyProcessed,
+      imageClassification: imageClassification ?? this.imageClassification,
     );
   }
 

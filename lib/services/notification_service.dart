@@ -20,6 +20,7 @@ class NotificationService {
   // Preference keys
   static const String _keyRemindersEnabled = 'reminders_enabled';
   static const String _keyReminderTimes = 'reminder_times';
+  static const String _keyReminderLabels = 'reminder_labels';
 
   // ============================================
   // INITIALIZATION
@@ -51,7 +52,7 @@ class NotificationService {
     );
 
     await _notifications.initialize(
-      initSettings,
+      settings: initSettings,
       onDidReceiveNotificationResponse: _onNotificationTapped,
     );
 
@@ -174,14 +175,12 @@ class NotificationService {
     );
 
     await _notifications.zonedSchedule(
-      id,
-      title,
-      body,
-      scheduledDate,
-      notificationDetails,
+      id: id,
+      title: title,
+      body: body,
+      scheduledDate: scheduledDate,
+      notificationDetails: notificationDetails,
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation:
-          UILocalNotificationDateInterpretation.absoluteTime,
       matchDateTimeComponents: DateTimeComponents.time, // Repeat daily
       payload: 'meal_reminder_$id',
     );
@@ -212,7 +211,7 @@ class NotificationService {
 
   /// Cancel a specific reminder
   static Future<void> cancelReminder(int id) async {
-    await _notifications.cancel(id);
+    await _notifications.cancel(id: id);
   }
 
   // ============================================
@@ -226,6 +225,22 @@ class NotificationService {
     // Convert TimeOfDay to string list (e.g., "8:30", "12:0", "18:30")
     final timeStrings = times.map((t) => '${t.hour}:${t.minute}').toList();
     await prefs.setStringList(_keyReminderTimes, timeStrings);
+  }
+
+  /// Save reminder labels to local storage
+  static Future<void> saveReminderLabels(List<String> labels) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_keyReminderLabels, labels);
+  }
+
+  /// Load reminder labels from local storage
+  static Future<List<String>> loadReminderLabels() async {
+    final prefs = await SharedPreferences.getInstance();
+    final labels = prefs.getStringList(_keyReminderLabels);
+    if (labels == null || labels.isEmpty) {
+      return ['Breakfast', 'Lunch', 'Dinner'];
+    }
+    return labels;
   }
 
   /// Load reminder times from local storage
@@ -291,10 +306,10 @@ class NotificationService {
     );
 
     await _notifications.show(
-      999, // Test notification ID
-      'Test Notification',
-      'This is a test meal reminder!',
-      notificationDetails,
+      id: 999, // Test notification ID
+      title: 'Test Notification',
+      body: 'This is a test meal reminder!',
+      notificationDetails: notificationDetails,
     );
   }
 }

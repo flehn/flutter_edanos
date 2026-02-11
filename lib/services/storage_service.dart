@@ -32,7 +32,7 @@ class StorageService {
   // ============================================
 
   /// Upload image to Firebase Storage and return the download URL
-  static Future<String> storeImage(Uint8List imageBytes, String mealId) async {
+  static Future<String> storeImage(Uint8List imageBytes, String mealId, {String? classification}) async {
     final ref = _storage.ref('users/$_userId/meals/$mealId.jpg');
     
     // Upload with metadata
@@ -42,6 +42,7 @@ class StorageService {
         contentType: 'image/jpeg',
         customMetadata: {
           'uploadedAt': DateTime.now().toIso8601String(),
+          if (classification != null) 'classification': classification,
         },
       ),
     );

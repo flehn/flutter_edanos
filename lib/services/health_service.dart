@@ -25,18 +25,21 @@ class HealthService {
     HealthDataType.WORKOUT,
     HealthDataType.WEIGHT,
     HealthDataType.HEIGHT,
-    HealthDataType.STEPS,
     // Demographics (iOS only)
     if (Platform.isIOS) HealthDataType.GENDER,
     if (Platform.isIOS) HealthDataType.BIRTH_DATE,
   ];
 
   // Health data types we might write (e.g., sync nutrition data)
+  // NOTE: DIETARY_* types are only available on iOS (HealthKit).
+  // Health Connect on Android does not support these data types.
   static final List<HealthDataType> _writeTypes = [
-    HealthDataType.DIETARY_ENERGY_CONSUMED,
-    HealthDataType.DIETARY_PROTEIN_CONSUMED,
-    HealthDataType.DIETARY_CARBS_CONSUMED,
-    HealthDataType.DIETARY_FATS_CONSUMED,
+    if (Platform.isIOS) ...[
+      HealthDataType.DIETARY_ENERGY_CONSUMED,
+      HealthDataType.DIETARY_PROTEIN_CONSUMED,
+      HealthDataType.DIETARY_CARBS_CONSUMED,
+      HealthDataType.DIETARY_FATS_CONSUMED,
+    ],
   ];
 
   // ============================================
@@ -66,7 +69,6 @@ class HealthService {
     try {
       final prefs = await SharedPreferences.getInstance();
       _hasPermissions = prefs.getBool(_permissionKey) ?? false;
-      debugPrint('[HealthService] Loaded persisted permission: $_hasPermissions');
     } catch (e) {
       debugPrint('[HealthService] Error loading persisted permission: $e');
     }
@@ -77,7 +79,6 @@ class HealthService {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_permissionKey, granted);
-      debugPrint('[HealthService] Saved permission state: $granted');
     } catch (e) {
       debugPrint('[HealthService] Error saving permission state: $e');
     }
@@ -115,7 +116,7 @@ class HealthService {
         permissions.add(HealthDataAccess.READ);
       }
       for (var _ in _writeTypes) {
-        permissions.add(HealthDataAccess.READ_WRITE);
+        permissions.add(HealthDataAccess.WRITE);
       }
 
       final allTypes = [..._readTypes, ..._writeTypes];
@@ -208,10 +209,7 @@ class HealthService {
 
   /// Get burned calories for a specific date
   static Future<double> getBurnedCaloriesForDate(DateTime date) async {
-    if (!_hasPermissions) {
-      debugPrint('[HealthService] No permissions for burned calories');
-      return 0;
-    }
+    if (!_hasPermissions) return 0;
 
     try {
       final startOfDay = DateTime(date.year, date.month, date.day);
@@ -230,7 +228,6 @@ class HealthService {
         }
       }
 
-      debugPrint('[HealthService] Burned calories for $date: ${totalCalories.round()} kcal (${data.length} points)');
       return totalCalories;
     } catch (e) {
       debugPrint('Error getting burned calories for date: $e');
@@ -443,35 +440,15 @@ class HealthService {
   }
 
   // ============================================
-  // STEPS
-  // ============================================
-
-  /// Get total steps for today
-  static Future<int> getTodaySteps() async {
-    if (!_hasPermissions) return 0;
-
-    try {
-      final now = DateTime.now();
-      final startOfDay = DateTime(now.year, now.month, now.day);
-
-      final steps = await _health.getTotalStepsInInterval(startOfDay, now);
-      return steps ?? 0;
-    } catch (e) {
-      debugPrint('Error getting steps: $e');
-      return 0;
-    }
-  }
-
-  // ============================================
   // WRITE NUTRITION DATA
   // ============================================
 
-  /// Write consumed calories to health app
+  /// Write consumed calories to health app (iOS only - not supported on Health Connect)
   static Future<bool> writeConsumedCalories(
     double calories,
     DateTime time,
   ) async {
-    if (!_hasPermissions) return false;
+    if (!_hasPermissions || !Platform.isIOS) return false;
 
     try {
       return await _health.writeHealthData(
@@ -487,7 +464,7 @@ class HealthService {
     }
   }
 
-  /// Write meal nutrition to health app
+  /// Write meal nutrition to health app (iOS only - not supported on Health Connect)
   static Future<bool> writeMealNutrition({
     required double calories,
     required double protein,
@@ -495,7 +472,7 @@ class HealthService {
     required double fat,
     required DateTime time,
   }) async {
-    if (!_hasPermissions) return false;
+    if (!_hasPermissions || !Platform.isIOS) return false;
 
     try {
       final results = await Future.wait([
@@ -617,7 +594,6 @@ class HealthService {
   static Future<HealthProfile> getUserProfile() async {
     final weight = await getLatestWeight();
     final height = await getLatestHeight();
-    final steps = await getTodaySteps();
     final burnedCalories = await getTodayBurnedCalories();
     final gender = await getGender();
     final age = await getAge();
@@ -625,7 +601,6 @@ class HealthService {
     return HealthProfile(
       weightKg: weight,
       heightCm: height,
-      todaySteps: steps,
       todayBurnedCalories: burnedCalories,
       gender: gender,
       age: age,
@@ -691,7 +666,6 @@ class WeightRecord {
 class HealthProfile {
   final double? weightKg;
   final double? heightCm;
-  final int todaySteps;
   final double todayBurnedCalories;
   final String? gender;
   final int? age;
@@ -699,7 +673,6 @@ class HealthProfile {
   HealthProfile({
     this.weightKg,
     this.heightCm,
-    required this.todaySteps,
     required this.todayBurnedCalories,
     this.gender,
     this.age,

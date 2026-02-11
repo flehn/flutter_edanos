@@ -4,6 +4,26 @@
     "project_id": "calorietracker-74c0d",
     "storage_bucket": "calorietracker-74c0d.firebasestorage.app"
   },
-  "client": [],
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:540378750459:android:87aba842828c904866ff5e",
+        "android_client_info": {
+          "package_name": "brotherarts.edanosai.foodnutritionscan.flutter"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC6RQlLp_7Y00_oofZ6VPpYMCezUQWtLpI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
   "configuration_version": "1"
 }

@@ -14,6 +14,16 @@ service cloud.firestore {
       match /quickAdd/{itemId} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }
+      
+      // Settings subcollection
+      match /settings/{settingId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      
+      // Daily evaluations subcollection
+      match /evaluations/{dateId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
     }
   }
 }

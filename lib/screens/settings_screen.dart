@@ -41,6 +41,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     const TimeOfDay(hour: 12, minute: 30), // Lunch
     const TimeOfDay(hour: 18, minute: 30), // Dinner
   ];
+  List<String> _reminderLabels = ['Breakfast', 'Lunch', 'Dinner'];
 
   /// User has an account (not anonymous)
   bool get _hasAccount => AuthService.hasAccount;
@@ -64,6 +65,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
       // Also load notification times from local (NotificationService handles scheduling)
       final times = await NotificationService.loadReminderTimes();
+      final labels = await NotificationService.loadReminderLabels();
 
       if (mounted) {
         setState(() {
@@ -73,6 +75,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _syncToHealth = settings.syncToHealth;
           _units = settings.units;
           _reminderTimes = times;
+          _reminderLabels = labels;
+          // Ensure labels list matches times list length
+          while (_reminderLabels.length < _reminderTimes.length) {
+            _reminderLabels.add(_getMealLabel(_reminderTimes[_reminderLabels.length]));
+          }
+          if (_reminderLabels.length > _reminderTimes.length) {
+            _reminderLabels = _reminderLabels.sublist(0, _reminderTimes.length);
+          }
           _gender = settings.gender;
           _age = settings.age;
           _weight = settings.weight;
@@ -94,7 +104,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
         setState(() {
           _mealReminders = enabled;
           _reminderTimes = times;
+          // Load labels too
         });
+        final labels = await NotificationService.loadReminderLabels();
+        if (mounted) {
+          setState(() {
+            _reminderLabels = labels;
+            while (_reminderLabels.length < _reminderTimes.length) {
+              _reminderLabels.add(_getMealLabel(_reminderTimes[_reminderLabels.length]));
+            }
+            if (_reminderLabels.length > _reminderTimes.length) {
+              _reminderLabels = _reminderLabels.sublist(0, _reminderTimes.length);
+            }
+          });
+        }
       }
     } catch (e) {
       debugPrint('Error loading reminder settings: $e');
@@ -112,6 +135,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         reminderTimesMinutes: _reminderTimes
             .map((t) => t.hour * 60 + t.minute)
             .toList(),
+        reminderLabels: _reminderLabels,
         gender: _gender,
         age: _age,
         weight: _weight,
@@ -135,6 +159,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
 
     setState(() => _healthAvailable = true);
+
+    // Initialize health service first
+    await HealthService.initialize();
 
     // Check if we already have permissions
     final hasPerms = await HealthService.hasPermissions();
@@ -182,8 +209,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         }
       } else {
         if (mounted) {
-          // Show a more helpful message
-          _showHealthPermissionDeniedDialog();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Health access denied. You can try again from Settings.'),
+              backgroundColor: AppTheme.warningColor,
+            ),
+          );
         }
       }
     } catch (e) {
@@ -243,51 +274,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  void _showHealthPermissionDeniedDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: AppTheme.surfaceDark,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            Icon(
-              Platform.isIOS ? Icons.favorite : Icons.monitor_heart,
-              color: AppTheme.warningColor,
-            ),
-            const SizedBox(width: 12),
-            const Text(
-              'Permission Denied',
-              style: TextStyle(color: AppTheme.textPrimary),
-            ),
-          ],
-        ),
-        content: Text(
-          Platform.isIOS
-              ? 'Health access was denied. To enable it:\n\n1. Open the Settings app\n2. Tap Privacy & Security\n3. Tap Health\n4. Find EdanosAI and enable permissions'
-              : 'Health Connect access was denied. To enable it:\n\n1. Open Health Connect app\n2. Tap App permissions\n3. Find EdanosAI and enable permissions',
-          style: const TextStyle(color: AppTheme.textSecondary),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('OK'),
-          ),
-          if (Platform.isAndroid)
-            ElevatedButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                HealthService.openHealthConnectSettings();
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primaryBlue,
-              ),
-              child: const Text('Open Settings'),
-            ),
-        ],
-      ),
-    );
-  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -620,6 +607,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           '${_healthProfile!.weightKg!.toStringAsFixed(1)} kg',
                       onTap: () {},
                     ),
+                  if (_healthProfile!.heightCm != null)
+                    _buildSettingsTile(
+                      icon: Icons.height,
+                      title: 'Height',
+                      subtitle:
+                          '${_healthProfile!.heightCm!.toStringAsFixed(1)} cm',
+                      onTap: () {},
+                    ),
                   _buildSettingsTile(
                     icon: Icons.local_fire_department_outlined,
                     title: 'Burned Today',
@@ -786,111 +781,110 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildReminderTimesSection() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppTheme.cardDark,
-        borderRadius: BorderRadius.circular(12),
-      ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const Icon(Icons.alarm, color: AppTheme.primaryBlue, size: 18),
-              const SizedBox(width: 8),
-              const Text(
-                'Reminder Times',
-                style: TextStyle(
-                  color: AppTheme.textPrimary,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 14,
-                ),
-              ),
-              const Spacer(),
-              // Add time button
-              IconButton(
-                onPressed: _addReminderTime,
-                icon: const Icon(
-                  Icons.add_circle_outline,
-                  color: AppTheme.primaryBlue,
-                ),
-                tooltip: 'Add reminder time',
-                visualDensity: VisualDensity.compact,
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
           if (_reminderTimes.isEmpty)
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
+              padding: const EdgeInsets.symmetric(vertical: 12),
               child: Text(
                 'No reminders set. Tap + to add one.',
                 style: TextStyle(color: AppTheme.textTertiary, fontSize: 13),
               ),
             )
           else
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: _reminderTimes.asMap().entries.map((entry) {
-                final index = entry.key;
-                final time = entry.value;
-                return _buildReminderTimeChip(index, time);
-              }).toList(),
+            ..._reminderTimes.asMap().entries.map((entry) {
+              final index = entry.key;
+              final time = entry.value;
+              final label = index < _reminderLabels.length
+                  ? _reminderLabels[index]
+                  : _getMealLabel(time);
+              return _buildReminderTimeRow(index, time, label);
+            }),
+          const SizedBox(height: 6),
+          // Add button
+          GestureDetector(
+            onTap: _addReminderTime,
+            child: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: AppTheme.primaryBlue,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(
+                Icons.add,
+                color: Colors.white,
+                size: 20,
+              ),
             ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildReminderTimeChip(int index, TimeOfDay time) {
-    final formattedTime = _formatTime(time);
-    final mealLabel = _getMealLabel(time);
+  Widget _buildReminderTimeRow(int index, TimeOfDay time, String label) {
+    final formattedTime = '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
 
-    return GestureDetector(
-      onTap: () => _editReminderTime(index, time),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: AppTheme.primaryBlue.withOpacity(0.15),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: AppTheme.primaryBlue.withOpacity(0.3)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.access_time,
-              size: 16,
-              color: AppTheme.primaryBlue,
-            ),
-            const SizedBox(width: 6),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  formattedTime,
-                  style: const TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
-                  ),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          // Time card
+          Expanded(
+            child: GestureDetector(
+              onTap: () => _editReminderTime(index, time),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: AppTheme.cardDark,
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                Text(
-                  mealLabel,
-                  style: TextStyle(color: AppTheme.textTertiary, fontSize: 10),
+                child: Row(
+                  children: [
+                    Text(
+                      formattedTime,
+                      style: const TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 17,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      label,
+                      style: TextStyle(
+                        color: AppTheme.textTertiary,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: () => _removeReminderTime(index),
-              child: Icon(Icons.close, size: 16, color: AppTheme.textTertiary),
+          ),
+          const SizedBox(width: 8),
+          // Remove button
+          GestureDetector(
+            onTap: () => _removeReminderTime(index),
+            child: Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: AppTheme.negativeColor.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                Icons.remove,
+                color: AppTheme.negativeColor.withOpacity(0.8),
+                size: 18,
+              ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -912,25 +906,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _addReminderTime() async {
-    final TimeOfDay? selectedTime = await showTimePicker(
-      context: context,
-      initialEntryMode: TimePickerEntryMode.input,
+    final result = await _showReminderDialog(
       initialTime: const TimeOfDay(hour: 12, minute: 0),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.dark(
-              primary: AppTheme.primaryBlue,
-              surface: AppTheme.surfaceDark,
-            ),
-            dialogBackgroundColor: AppTheme.surfaceDark,
-          ),
-          child: child!,
-        );
-      },
+      initialLabel: '',
+      title: 'Add Reminder',
     );
 
-    if (selectedTime != null) {
+    if (result != null) {
+      final selectedTime = result['time'] as TimeOfDay;
+      final label = result['label'] as String;
+
       // Check if time already exists
       final exists = _reminderTimes.any(
         (t) => t.hour == selectedTime.hour && t.minute == selectedTime.minute,
@@ -948,52 +933,183 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return;
       }
 
+      // Build paired list, add, sort together
+      final pairs = List.generate(
+        _reminderTimes.length,
+        (i) => MapEntry(_reminderTimes[i], _reminderLabels.length > i ? _reminderLabels[i] : _getMealLabel(_reminderTimes[i])),
+      );
+      pairs.add(MapEntry(selectedTime, label.isEmpty ? _getMealLabel(selectedTime) : label));
+      pairs.sort((a, b) => (a.key.hour * 60 + a.key.minute).compareTo(b.key.hour * 60 + b.key.minute));
+
       setState(() {
-        _reminderTimes.add(selectedTime);
-        _reminderTimes.sort(
-          (a, b) => (a.hour * 60 + a.minute).compareTo(b.hour * 60 + b.minute),
-        );
+        _reminderTimes = pairs.map((p) => p.key).toList();
+        _reminderLabels = pairs.map((p) => p.value).toList();
       });
 
-      // TODO: Schedule notification for this time
       _saveReminderSettings();
     }
   }
 
   Future<void> _editReminderTime(int index, TimeOfDay currentTime) async {
-    final TimeOfDay? selectedTime = await showTimePicker(
-      context: context,
-      initialEntryMode: TimePickerEntryMode.input,
+    final currentLabel = index < _reminderLabels.length
+        ? _reminderLabels[index]
+        : _getMealLabel(currentTime);
+
+    final result = await _showReminderDialog(
       initialTime: currentTime,
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.dark(
-              primary: AppTheme.primaryBlue,
-              surface: AppTheme.surfaceDark,
-            ),
-            dialogBackgroundColor: AppTheme.surfaceDark,
-          ),
-          child: child!,
-        );
-      },
+      initialLabel: currentLabel,
+      title: 'Edit Reminder',
     );
 
-    if (selectedTime != null) {
+    if (result != null) {
+      final selectedTime = result['time'] as TimeOfDay;
+      final label = result['label'] as String;
+
+      // Update in place then sort
+      final pairs = List.generate(
+        _reminderTimes.length,
+        (i) => MapEntry(_reminderTimes[i], _reminderLabels.length > i ? _reminderLabels[i] : _getMealLabel(_reminderTimes[i])),
+      );
+      pairs[index] = MapEntry(selectedTime, label.isEmpty ? _getMealLabel(selectedTime) : label);
+      pairs.sort((a, b) => (a.key.hour * 60 + a.key.minute).compareTo(b.key.hour * 60 + b.key.minute));
+
       setState(() {
-        _reminderTimes[index] = selectedTime;
-        _reminderTimes.sort(
-          (a, b) => (a.hour * 60 + a.minute).compareTo(b.hour * 60 + b.minute),
-        );
+        _reminderTimes = pairs.map((p) => p.key).toList();
+        _reminderLabels = pairs.map((p) => p.value).toList();
       });
 
       _saveReminderSettings();
     }
   }
 
+  Future<Map<String, dynamic>?> _showReminderDialog({
+    required TimeOfDay initialTime,
+    required String initialLabel,
+    required String title,
+  }) async {
+    TimeOfDay selectedTime = initialTime;
+    final labelController = TextEditingController(text: initialLabel);
+
+    return showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final formattedTime = '${selectedTime.hour.toString().padLeft(2, '0')}:${selectedTime.minute.toString().padLeft(2, '0')}';
+            return AlertDialog(
+              backgroundColor: AppTheme.surfaceDark,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: Text(
+                title,
+                style: const TextStyle(color: AppTheme.textPrimary, fontSize: 18),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Time picker row
+                  GestureDetector(
+                    onTap: () async {
+                      final time = await showTimePicker(
+                        context: context,
+                        initialEntryMode: TimePickerEntryMode.input,
+                        initialTime: selectedTime,
+                        builder: (context, child) {
+                          return Theme(
+                            data: Theme.of(context).copyWith(
+                              colorScheme: const ColorScheme.dark(
+                                primary: AppTheme.primaryBlue,
+                                surface: AppTheme.surfaceDark,
+                              ),
+                              dialogBackgroundColor: AppTheme.surfaceDark,
+                            ),
+                            child: child!,
+                          );
+                        },
+                      );
+                      if (time != null) {
+                        setDialogState(() => selectedTime = time);
+                        // Auto-fill label if empty
+                        if (labelController.text.isEmpty) {
+                          labelController.text = _getMealLabel(time);
+                        }
+                      }
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      decoration: BoxDecoration(
+                        color: AppTheme.cardDark,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.access_time, color: AppTheme.primaryBlue, size: 20),
+                          const SizedBox(width: 12),
+                          Text(
+                            formattedTime,
+                            style: const TextStyle(
+                              color: AppTheme.textPrimary,
+                              fontSize: 20,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const Spacer(),
+                          const Icon(Icons.edit, color: AppTheme.textTertiary, size: 16),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  // Label text field
+                  TextField(
+                    controller: labelController,
+                    style: const TextStyle(color: AppTheme.textPrimary),
+                    decoration: InputDecoration(
+                      labelText: 'Label',
+                      labelStyle: TextStyle(color: AppTheme.textTertiary),
+                      hintText: 'e.g. Breakfast, Lunch, Dinner',
+                      hintStyle: TextStyle(color: AppTheme.textTertiary.withOpacity(0.5)),
+                      filled: true,
+                      fillColor: AppTheme.cardDark,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: Text('Cancel', style: TextStyle(color: AppTheme.textTertiary)),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.of(context).pop({
+                      'time': selectedTime,
+                      'label': labelController.text.trim(),
+                    });
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryBlue,
+                  ),
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   void _removeReminderTime(int index) {
     setState(() {
       _reminderTimes.removeAt(index);
+      if (index < _reminderLabels.length) {
+        _reminderLabels.removeAt(index);
+      }
     });
 
     _saveReminderSettings();
@@ -1012,6 +1128,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       // Schedule notifications at the new times
       await NotificationService.scheduleMealReminders(_reminderTimes);
+      await NotificationService.saveReminderLabels(_reminderLabels);
+      _saveSettingsToFirebase();
 
       debugPrint(
         'Reminder times saved: ${_reminderTimes.map(_formatTime).join(", ")}',

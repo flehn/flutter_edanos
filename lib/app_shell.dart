@@ -26,7 +26,10 @@ class _AppShellState extends State<AppShell> {
   void initState() {
     super.initState();
     _screens = [
-      FoodLogScreen(key: _foodLogKey),
+      FoodLogScreen(
+        key: _foodLogKey,
+        onAddFood: () => _onTabSelected(1),
+      ),
       AddFoodScreen(key: _addFoodKey),
       GoalsScreen(key: _goalsKey),
       const SettingsScreen(),

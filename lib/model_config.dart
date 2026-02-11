@@ -9,8 +9,9 @@ import 'package:firebase_ai/firebase_ai.dart';
 
 final jsonSchema_essentialNutrition = Schema.object(
   properties: {
-    'is_food': Schema.boolean(
-      description: 'Whether the image contains food. Be critical - it must be real food or food products!',
+    'image_classification': Schema.enumString(
+      enumValues: ['food', 'nutritional_label_on_packed_product', 'packaged_product_only', 'no_food_no_label'],
+      description: 'Classify the image: "food" for food dishes, "nutritional_label_on_packed_product" for nutrition labels, "packaged_product_only" for packaged product fronts without labels, or "no_food_no_label" for empty plates, random images, etc.',
     ),
     'ingredients': Schema.array(
       items: Schema.object(
@@ -49,8 +50,9 @@ final jsonSchema_essentialNutrition = Schema.object(
 
 final jsonSchema_comprehensiveNutrition = Schema.object(
   properties: {
-    'is_food': Schema.boolean(
-      description: 'Whether the image contains food. Be critical - it must be real food or food products!',
+    'image_classification': Schema.enumString(
+      enumValues: ['food', 'nutritional_label_on_packed_product', 'packaged_product_only', 'no_food_no_label'],
+      description: 'Classify the image: "food" for food dishes, "nutritional_label_on_packed_product" for nutrition labels, "packaged_product_only" for packaged product fronts without labels, or "no_food_no_label" for empty plates, random images, etc.',
     ),
     'ingredients': Schema.array(
       items: Schema.object(
@@ -132,6 +134,10 @@ final jsonSchema_aievaluation = Schema.object(
     'critical': Schema.string(
       description:
           'Describe the potential health issues!',
+    ),
+    'processedFoodFeedback': Schema.string(
+      description:
+          'Feedback about processed food consumption: compliment if none, warning if majority (>50%) were processed.',
     ),
   },
 );

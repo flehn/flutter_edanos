@@ -301,6 +301,35 @@ class FirestoreService {
   }
 
   // ============================================
+  // DAILY EVALUATIONS
+  // ============================================
+
+  /// Reference to user's evaluations collection
+  static CollectionReference<Map<String, dynamic>> get _evaluationsRef {
+    return _db.collection('users').doc(_userId).collection('evaluations');
+  }
+
+  /// Save a daily AI evaluation for a specific date.
+  /// Uses the date string (yyyy-MM-dd) as document ID so re-running overwrites.
+  static Future<void> saveDailyEvaluation(DateTime date, Map<String, dynamic> evaluation) async {
+    final dateKey = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    await _evaluationsRef.doc(dateKey).set({
+      ...evaluation,
+      'date': dateKey,
+      'createdAt': DateTime.now().toIso8601String(),
+    });
+  }
+
+  /// Get a saved daily evaluation for a specific date.
+  /// Returns null if no evaluation exists for that date.
+  static Future<Map<String, dynamic>?> getDailyEvaluation(DateTime date) async {
+    final dateKey = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    final doc = await _evaluationsRef.doc(dateKey).get();
+    if (!doc.exists) return null;
+    return doc.data();
+  }
+
+  // ============================================
   // DATA MANAGEMENT
   // ============================================
 
@@ -575,6 +604,7 @@ class UserSettings {
   final bool syncToHealth;
   final String units; // 'Metric' or 'Imperial'
   final List<int> reminderTimesMinutes; // Minutes from midnight for each reminder
+  final List<String> reminderLabels; // Custom labels for each reminder
   final DateTime? lastUpdated;
   final String gender; // 'male' or 'female'
   final int age; // User's age in years
@@ -587,6 +617,7 @@ class UserSettings {
     required this.syncToHealth,
     required this.units,
     required this.reminderTimesMinutes,
+    required this.reminderLabels,
     this.lastUpdated,
     required this.gender,
     required this.age,
@@ -601,6 +632,7 @@ class UserSettings {
       syncToHealth: false,
       units: 'Metric',
       reminderTimesMinutes: [480, 750, 1110], // 8:00, 12:30, 18:30 in minutes
+      reminderLabels: ['Breakfast', 'Lunch', 'Dinner'],
       lastUpdated: DateTime.now(),
       gender: 'male',
       age: 30,
@@ -619,6 +651,10 @@ class UserSettings {
               ?.map((e) => e as int)
               .toList() ??
           [480, 750, 1110],
+      reminderLabels: (data['reminderLabels'] as List<dynamic>?)
+              ?.map((e) => e as String)
+              .toList() ??
+          ['Breakfast', 'Lunch', 'Dinner'],
       lastUpdated: data['lastUpdated'] != null
           ? DateTime.parse(data['lastUpdated'] as String)
           : null,
@@ -636,6 +672,7 @@ class UserSettings {
       'syncToHealth': syncToHealth,
       'units': units,
       'reminderTimesMinutes': reminderTimesMinutes,
+      'reminderLabels': reminderLabels,
       'lastUpdated': DateTime.now().toIso8601String(),
       'gender': gender,
       'age': age,
@@ -650,6 +687,7 @@ class UserSettings {
     bool? syncToHealth,
     String? units,
     List<int>? reminderTimesMinutes,
+    List<String>? reminderLabels,
     String? gender,
     int? age,
     double? weight,
@@ -661,6 +699,7 @@ class UserSettings {
       syncToHealth: syncToHealth ?? this.syncToHealth,
       units: units ?? this.units,
       reminderTimesMinutes: reminderTimesMinutes ?? this.reminderTimesMinutes,
+      reminderLabels: reminderLabels ?? this.reminderLabels,
       lastUpdated: DateTime.now(),
       gender: gender ?? this.gender,
       age: age ?? this.age,
