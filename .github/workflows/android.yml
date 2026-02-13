@@ -62,6 +62,13 @@ jobs:
       - name: Build App Bundle
         run: flutter build appbundle --release --build-number=${{ github.run_number }}
 
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+          working-directory: android
+
       - name: Install fastlane
         working-directory: android
         run: bundle install
