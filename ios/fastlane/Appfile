@@ -1,0 +1,8 @@
+app_identifier("brotherarts.EdanosAI.FoodNutritionScan.flutter") # The bundle identifier of your app
+apple_id("vomlehn@outlook.com") # Your Apple Developer Portal username
+
+itc_team_id("127713982") # App Store Connect Team ID
+team_id("Z4C8GG545Z") # Developer Portal Team ID
+
+# For more information about the Appfile, see:
+#     https://docs.fastlane.tools/advanced/#appfile

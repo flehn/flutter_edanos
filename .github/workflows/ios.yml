@@ -1,0 +1,61 @@
+name: iOS CI / Deploy to TestFlight
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache Flutter
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: ${{ runner.os }}-pub-${{ hashFiles('**/pubspec.lock') }}
+          restore-keys: ${{ runner.os }}-pub-
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Precache iOS artifacts
+        run: flutter precache --ios
+
+      - name: Install CocoaPods dependencies
+        run: cd ios && pod install
+
+      - name: Run tests
+        run: flutter test
+
+      - name: Build IPA
+        run: flutter build ipa --release --build-number=${{ github.run_number }}
+
+      - name: Install fastlane
+        working-directory: ios
+        run: bundle install
+
+      - name: Deploy to TestFlight
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        working-directory: ios
+        env:
+          APP_STORE_KEY_ID: ${{ secrets.APP_STORE_KEY_ID }}
+          APP_STORE_ISSUER_ID: ${{ secrets.APP_STORE_ISSUER_ID }}
+          APP_STORE_KEY_P8: ${{ secrets.APP_STORE_KEY_P8 }}
+        run: bundle exec fastlane beta

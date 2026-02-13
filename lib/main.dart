@@ -32,7 +32,7 @@ void main() async {
   // Using App Attest for iOS (requires iOS 14.0+, production)
   await FirebaseAppCheck.instance.activate(
     androidProvider: AndroidProvider.playIntegrity,
-    appleProvider: AppleProvider.debug //.appAttest,
+    appleProvider: AppleProvider.appAttest //.appAttest,
   );
 
   // Ensure user is signed in (anonymously if needed)

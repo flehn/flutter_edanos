@@ -1,0 +1,48 @@
+# This file contains the fastlane.tools configuration
+# You can find the documentation at https://docs.fastlane.tools
+#
+# For a list of all available actions, check out
+#
+#     https://docs.fastlane.tools/actions
+#
+# For a list of all available plugins, check out
+#
+#     https://docs.fastlane.tools/plugins/available-plugins
+#
+
+# Uncomment the line if you want fastlane to automatically update itself
+# update_fastlane
+
+default_platform(:android)
+
+platform :android do
+  desc "Runs all the tests"
+  lane :test do
+    gradle(task: "test")
+  end
+
+  desc "Submit a new Beta Build to Crashlytics Beta"
+  lane :beta do
+    gradle(task: "clean assembleRelease")
+    crashlytics
+  
+    # sh "your_script.sh"
+    # You can also use other beta testing services here
+  end
+
+  desc "Deploy a new version to the Google Play"
+  # Expects: flutter build appbundle to be run first (from project root)
+  lane :deploy do
+    aab_path = File.join(__dir__, "..", "..", "build", "app", "outputs", "bundle", "release", "app-release.aab")
+    unless File.exist?(aab_path)
+      UI.user_error!("AAB not found at #{aab_path}. Run 'flutter build appbundle' from project root first.")
+    end
+    upload_options = {
+      aab: aab_path,
+      track: "internal"
+    }
+    # CI: use PLAY_STORE_JSON_KEY secret; local: uses json_key_file from Appfile
+    upload_options[:json_key_data] = ENV["PLAY_STORE_JSON_KEY"] if ENV["PLAY_STORE_JSON_KEY"]
+    upload_to_play_store(upload_options)
+  end
+end
