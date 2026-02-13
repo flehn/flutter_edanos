@@ -1,0 +1,8 @@
+git_url(ENV["MATCH_GIT_URL"] || "git@personal:flehn/flutter_edanos_certifications.git")
+
+storage_mode("git")
+
+type("appstore")
+
+app_identifier(["brotherarts.EdanosAI.FoodNutritionScan.flutter"])
+username("vomlehn@outlook.com")
