@@ -975,7 +975,6 @@ class FoodLogScreenState extends State<FoodLogScreen> {
         totalProtein: selectedDay.totalProtein,
         totalCarbs: selectedDay.totalCarbs,
         totalFat: selectedDay.totalFat,
-        totalSaturatedFat: selectedDay.totalSaturatedFat,
         totalFiber: selectedDay.totalFiber,
         totalSugar: selectedDay.totalSugar,
         meals: mealDescriptions,

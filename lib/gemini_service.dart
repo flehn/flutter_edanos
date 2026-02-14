@@ -145,8 +145,7 @@ For "processedFoodFeedback": Evaluate the processed food consumption based on th
 
 Focus on:
 - total sugar intake (max 22g/day for women, 37g/day for men)
-- Saturated fat (max 10% of total calories)
-- Fiber (min 25g/day for women, 30g/day for men)  
+- Fiber (min 25g/day for women, 30g/day for men)
 - Protein (min 0.8g per kg body weight)
 - Overall calorie balance vs their goal
 
@@ -572,7 +571,6 @@ Be concise and actionable. If everything looks good, say so. If there are issues
     required double totalProtein,
     required double totalCarbs,
     required double totalFat,
-    required double totalSaturatedFat,
     required double totalFiber,
     required double totalSugar,
     required List<String> meals, // List of meal descriptions with ingredients
@@ -584,10 +582,6 @@ Be concise and actionable. If everything looks good, say so. If there are issues
     }
 
     // Pre-calculate values for the AI
-    final saturatedFatCalories = totalSaturatedFat * 9; // 9 kcal per gram of fat
-    final saturatedFatPercent = totalCalories > 0
-        ? (saturatedFatCalories / totalCalories * 100)
-        : 0.0;
     final proteinPerKg = weightKg > 0 ? totalProtein / weightKg : 0.0;
     final netCalories = totalCalories - burnedCalories;
     
@@ -610,7 +604,6 @@ Today's Consumption:
 - Protein: ${totalProtein.toStringAsFixed(1)}g (${proteinPerKg.toStringAsFixed(2)}g per kg body weight - target: ≥${minProteinPerKg}g/kg)
 - Carbohydrates: ${totalCarbs.toStringAsFixed(1)}g
 - Fat: ${totalFat.toStringAsFixed(1)}g
-- Saturated Fat: ${totalSaturatedFat.toStringAsFixed(1)}g (${saturatedFatPercent.toStringAsFixed(1)}% of calories - limit: <10%)
 - Fiber: ${totalFiber.toStringAsFixed(1)}g (min target: ≥${minFiber}g)
 - Sugar: ${totalSugar.toStringAsFixed(1)}g (max limit: <${maxSugar}g)
 
