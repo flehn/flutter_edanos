@@ -526,7 +526,8 @@ Provide a brief, direct health evaluation for this day. Only focus on the presen
     }
 
     final prompt = """
-Evaluate this user's 20-day nutrition progress and give detailed feedback.
+Evaluate this user's 20-day nutrition progress and give detailed, evidence-based feedback.
+Use Google Search to verify the latest nutritional science recommendations for this user's profile and goal.
 
 User Profile:
 - Gender: $gender
@@ -538,14 +539,21 @@ User Profile:
 Daily Meal Data (last 20 days):
 ${dailySummaries.map((d) => '${d['date']}: ${d['mealCount']} meals, ${d['calories']} kcal, ${d['protein']}g protein, ${d['carbs']}g carbs, ${d['fat']}g fat, ${d['fiber']}g fiber, ${d['sugar']}g sugar | Meals: ${d['mealDetails']}').join('\n')}
 
-Use Google Search to verify the latest nutritional science recommendations for this user's profile and goal.
+Structure your response with these exact section headers:
 
-Respond with a JSON object with these fields:
-- "overallProgress": Overall assessment (2-3 sentences)
-- "strengths": What they did well (2-3 sentences)
-- "improvements": Key areas to improve (2-3 sentences)
-- "mealTimingFeedback": Feedback on meal timing patterns (1-2 sentences)
-- "progressScore": Score from 1-10
+SCORE: [a number from 1 to 10]
+
+OVERALL PROGRESS:
+[2-3 sentences: Are they on track with their goal?]
+
+STRENGTHS:
+[2-3 sentences: What they did well, highlight consistent good habits]
+
+IMPROVEMENTS:
+[2-3 sentences: Key areas for improvement, be specific and actionable]
+
+MEAL TIMING:
+[1-2 sentences: Feedback on protein distribution across meals, late-night eating, breakfast habits]
 """;
 
     debugPrint('=== 20-Day Progress Evaluation Prompt ===');

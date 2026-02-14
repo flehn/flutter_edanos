@@ -141,32 +141,3 @@ final jsonSchema_aievaluation = Schema.object(
     ),
   },
 );
-
-// ============================================
-// 20-DAY PROGRESS EVALUATION SCHEMA
-// ============================================
-
-final jsonSchema_progressEvaluation = Schema.object(
-  properties: {
-    'overallProgress': Schema.string(
-      description:
-          'Overall assessment of the user\'s 20-day nutrition journey (2-3 sentences). Are they on track with their goal (gain/lose weight)?',
-    ),
-    'strengths': Schema.string(
-      description:
-          'What the user did well over the 20-day period (2-3 sentences). Highlight consistent good habits.',
-    ),
-    'improvements': Schema.string(
-      description:
-          'Key areas for improvement over the next 20 days (2-3 sentences). Be specific and actionable.',
-    ),
-    'mealTimingFeedback': Schema.string(
-      description:
-          'Feedback on meal timing patterns: protein distribution across meals, late-night eating, breakfast habits (1-2 sentences).',
-    ),
-    'progressScore': Schema.number(
-      description:
-          'A score from 1-10 reflecting overall progress towards the user\'s goal.',
-    ),
-  },
-);

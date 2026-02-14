@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
@@ -194,22 +193,8 @@ class ProgressService {
 
     if (result == null) return null;
 
-    // Parse response
-    Map<String, dynamic> evaluation;
-    try {
-      // Try to extract JSON from response (may have markdown fences)
-      final jsonStr = _extractJson(result);
-      evaluation = jsonDecode(jsonStr) as Map<String, dynamic>;
-    } catch (e) {
-      debugPrint('Failed to parse progress evaluation: $e');
-      evaluation = {
-        'overallProgress': result,
-        'strengths': '',
-        'improvements': '',
-        'mealTimingFeedback': '',
-        'progressScore': 5,
-      };
-    }
+    // Parse structured free-text response (Google Search grounding doesn't support JSON schema)
+    final evaluation = _parseSections(result);
 
     evaluation['evaluatedAt'] = DateTime.now().toIso8601String();
     evaluation['activeDays'] = activeDayCount;
@@ -251,12 +236,32 @@ class ProgressService {
   static String _dateKey(DateTime d) =>
       '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
-  static String _extractJson(String text) {
-    final fenceMatch = RegExp(r'```(?:json)?\s*\n?([\s\S]*?)\n?```').firstMatch(text);
-    if (fenceMatch != null) return fenceMatch.group(1)!.trim();
-    final braceMatch = RegExp(r'\{[\s\S]*\}').firstMatch(text);
-    if (braceMatch != null) return braceMatch.group(0)!;
-    return text;
+  /// Parse the structured free-text response into a map.
+  /// Expected format uses section headers like "SCORE:", "OVERALL PROGRESS:", etc.
+  static Map<String, dynamic> _parseSections(String text) {
+    String _extractSection(String header) {
+      final pattern = RegExp(
+        '$header[:\\s]*\\n?([\\s\\S]*?)(?=\\n(?:SCORE|OVERALL PROGRESS|STRENGTHS|IMPROVEMENTS|MEAL TIMING):|\$)',
+        caseSensitive: false,
+      );
+      final match = pattern.firstMatch(text);
+      return match?.group(1)?.trim() ?? '';
+    }
+
+    // Extract score
+    int score = 5;
+    final scoreMatch = RegExp(r'SCORE[:\s]*(\d+)', caseSensitive: false).firstMatch(text);
+    if (scoreMatch != null) {
+      score = int.tryParse(scoreMatch.group(1)!) ?? 5;
+    }
+
+    return {
+      'overallProgress': _extractSection('OVERALL PROGRESS'),
+      'strengths': _extractSection('STRENGTHS'),
+      'improvements': _extractSection('IMPROVEMENTS'),
+      'mealTimingFeedback': _extractSection('MEAL TIMING'),
+      'progressScore': score,
+    };
   }
 }
 
