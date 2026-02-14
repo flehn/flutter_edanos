@@ -45,6 +45,7 @@ dependencies:
   firebase_storage: ^13.0.4      # Storage for meal images
   firebase_app_check: ^0.4.1+4    # Security
   firebase_ai: ^3.8.0 #Gemini AI
+  firebase_remote_config: ^6.1.4  # Remote config for model/prompt updates
   image_picker: ^1.0.4
   health: ^13.3.1        # Apple Health & Health Connect integration
   flutter_local_notifications: ^20.0.0  # Local notifications for meal reminders
