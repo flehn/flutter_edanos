@@ -55,13 +55,13 @@ platform :ios do
       )
     else
       # Local: expect flutter build ipa was already run
-      ipa_path = File.join(__dir__, "..", "..", "build", "ios", "ipa", "Runner.ipa")
+      ipa_path = File.expand_path(File.join(__dir__, "..", "..", "build", "ios", "ipa", "Runner.ipa"))
       unless File.exist?(ipa_path)
         UI.user_error!("IPA not found at #{ipa_path}. Run 'flutter build ipa' from project root first.")
       end
     end
 
-    ipa_path ||= File.join(__dir__, "..", "..", "build", "ios", "ipa", "Runner.ipa")
+    ipa_path ||= File.expand_path(File.join(__dir__, "..", "..", "build", "ios", "ipa", "Runner.ipa"))
 
     upload_to_testflight(
       api_key: api_key,
