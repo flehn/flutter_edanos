@@ -18,7 +18,7 @@ default_platform(:ios)
 platform :ios do
   desc "Push a new beta build to TestFlight"
   # CI: builds without codesign via flutter, then signs with match + build_app
-  # Local: can run flutter build ipa first, then this lane just uploads
+  # Local: can run flutter build ipa first, then this lane just uploads a
   lane :beta do
     api_key = app_store_connect_api_key(
       key_id: ENV["APP_STORE_KEY_ID"],
