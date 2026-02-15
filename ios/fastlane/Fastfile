@@ -37,12 +37,21 @@ platform :ios do
       )
 
       # Build and sign the app (Flutter already ran flutter build ios --no-codesign)
+      update_code_signing_settings(
+        use_automatic_signing: false,
+        path: "Runner.xcodeproj",
+        team_id: "Z4C8GG545Z",
+        profile_name: ENV["sigh_brotherarts.EdanosAI.FoodNutritionScan.flutter_appstore_profile-name"],
+        code_sign_identity: "Apple Distribution",
+      )
+
       build_app(
         workspace: "Runner.xcworkspace",
         scheme: "Runner",
         export_method: "app-store",
         output_directory: "../build/ios/ipa",
         output_name: "Runner.ipa",
+        xcargs: "-allowProvisioningUpdates",
       )
     else
       # Local: expect flutter build ipa was already run
