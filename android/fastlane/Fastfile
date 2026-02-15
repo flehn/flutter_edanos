@@ -33,7 +33,7 @@ platform :android do
   desc "Deploy a new version to the Google Play"
   # Expects: flutter build appbundle to be run first (from project root)
   lane :deploy do
-    aab_path = File.join(__dir__, "..", "..", "build", "app", "outputs", "bundle", "release", "app-release.aab")
+    aab_path = File.expand_path(File.join(__dir__, "..", "..", "build", "app", "outputs", "bundle", "release", "app-release.aab"))
     unless File.exist?(aab_path)
       UI.user_error!("AAB not found at #{aab_path}. Run 'flutter build appbundle' from project root first.")
     end
