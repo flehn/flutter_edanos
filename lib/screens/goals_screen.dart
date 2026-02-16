@@ -206,15 +206,6 @@ class GoalsScreenState extends State<GoalsScreen> {
         backgroundColor: AppTheme.backgroundDark,
         title: const Text('Goals'),
         centerTitle: true,
-        actions: [
-          TextButton(
-            onPressed: _showEditGoalsSheet,
-            child: const Text(
-              'Edit',
-              style: TextStyle(color: AppTheme.primaryBlue, fontSize: 16),
-            ),
-          ),
-        ],
       ),
       body: RefreshIndicator(
         onRefresh: _loadData,
@@ -223,13 +214,13 @@ class GoalsScreenState extends State<GoalsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Weight goal mode toggle
-              _buildWeightModeToggle(),
+              // Adjust goals row
+              _buildAdjustGoalsRow(),
 
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
 
-              // Goal detail chips
-              _buildGoalChips(),
+              // "Choose your goals" label + all four goal chips
+              _buildGoalSection(),
 
               const SizedBox(height: 16),
 
@@ -327,122 +318,73 @@ class GoalsScreenState extends State<GoalsScreen> {
     }
   }
 
-  Widget _buildWeightModeToggle() {
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: AppTheme.cardDark,
-        borderRadius: BorderRadius.circular(12),
-      ),
+  Widget _buildAdjustGoalsRow() {
+    return GestureDetector(
+      onTap: _showEditGoalsSheet,
       child: Row(
         children: [
           Expanded(
-            child: GestureDetector(
-              onTap: () => _setWeightMode(false),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                decoration: BoxDecoration(
-                  color: !_isGainMode
-                      ? AppTheme.primaryBlue.withOpacity(0.2)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(10),
-                  border: !_isGainMode
-                      ? Border.all(color: AppTheme.primaryBlue, width: 1.5)
-                      : null,
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.trending_down,
-                      size: 20,
-                      color: !_isGainMode
-                          ? AppTheme.primaryBlue
-                          : AppTheme.textTertiary,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Lose Weight',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: !_isGainMode
-                            ? FontWeight.w600
-                            : FontWeight.normal,
-                        color: !_isGainMode
-                            ? AppTheme.primaryBlue
-                            : AppTheme.textTertiary,
-                      ),
-                    ),
-                  ],
-                ),
+            child: Text(
+              'Adjust your Calories, Protein, Fat, Carbs goals',
+              style: TextStyle(
+                fontSize: 13,
+                color: AppTheme.textTertiary,
               ),
             ),
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: GestureDetector(
-              onTap: () => _setWeightMode(true),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                decoration: BoxDecoration(
-                  color: _isGainMode
-                      ? AppTheme.primaryBlue.withOpacity(0.2)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(10),
-                  border: _isGainMode
-                      ? Border.all(color: AppTheme.primaryBlue, width: 1.5)
-                      : null,
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.trending_up,
-                      size: 20,
-                      color: _isGainMode ? AppTheme.primaryBlue : AppTheme.textTertiary,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Gain Weight',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: _isGainMode
-                            ? FontWeight.w600
-                            : FontWeight.normal,
-                        color: _isGainMode
-                            ? AppTheme.primaryBlue
-                            : AppTheme.textTertiary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+          Icon(
+            Icons.edit,
+            size: 18,
+            color: AppTheme.primaryBlue,
           ),
         ],
       ),
     );
   }
 
-  Widget _buildGoalChips() {
-    return Row(
+  Widget _buildGoalSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildGoalChip('Lose fat', _loseFat, (val) {
-          setState(() => _loseFat = val);
-          _saveGoalChips();
-        }),
-        const SizedBox(width: 8),
-        _buildGoalChip('Gain muscles', _gainMuscles, (val) {
-          setState(() => _gainMuscles = val);
-          _saveGoalChips();
-        }),
+        Text(
+          'Choose your goals',
+          style: TextStyle(
+            fontSize: 13,
+            color: AppTheme.textTertiary,
+          ),
+        ),
+        const SizedBox(height: 8),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              _buildGoalChip('Lose weight', !_isGainMode, () {
+                _setWeightMode(false);
+              }),
+              const SizedBox(width: 8),
+              _buildGoalChip('Gain weight', _isGainMode, () {
+                _setWeightMode(true);
+              }),
+              const SizedBox(width: 8),
+              _buildGoalChip('Lose fat', _loseFat, () {
+                setState(() => _loseFat = !_loseFat);
+                _saveGoalChips();
+              }),
+              const SizedBox(width: 8),
+              _buildGoalChip('Gain muscles', _gainMuscles, () {
+                setState(() => _gainMuscles = !_gainMuscles);
+                _saveGoalChips();
+              }),
+            ],
+          ),
+        ),
       ],
     );
   }
 
-  Widget _buildGoalChip(String label, bool selected, ValueChanged<bool> onChanged) {
+  Widget _buildGoalChip(String label, bool selected, VoidCallback onTap) {
     return GestureDetector(
-      onTap: () => onChanged(!selected),
+      onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(

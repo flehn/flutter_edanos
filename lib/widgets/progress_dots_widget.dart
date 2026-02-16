@@ -198,23 +198,24 @@ class ProgressDotsWidgetState extends State<ProgressDotsWidget> {
     final hasEvaluation = snap.lastEvaluation != null;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Description text
-          const Text(
-            'Scan 20 days in a row to get feedback about your progress',
-            style: TextStyle(
-              fontSize: 12,
-              color: AppTheme.textTertiary,
+          // Title with remaining days
+          Text(
+            'Feedback in ${20 - snap.totalDaysInCycle} days',
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.textPrimary,
             ),
             textAlign: TextAlign.left,
           ),
           const SizedBox(height: 8),
           // Dots row
           Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisAlignment: MainAxisAlignment.start,
             children: List.generate(20, (index) {
               final isActive = snap.activeDayFlags[index];
               final isPast = index < snap.totalDaysInCycle;

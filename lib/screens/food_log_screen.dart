@@ -335,8 +335,11 @@ class FoodLogScreenState extends State<FoodLogScreen> {
     return Scaffold(
       backgroundColor: AppTheme.backgroundDark,
       body: SafeArea(
-         child: CustomScrollView(
-           slivers: [
+         child: RefreshIndicator(
+           onRefresh: _onPullRefresh,
+           color: AppTheme.primaryBlue,
+           child: CustomScrollView(
+             slivers: [
              // 1. Calories Summary
              SliverToBoxAdapter(
                child: Padding(
@@ -594,8 +597,18 @@ class FoodLogScreenState extends State<FoodLogScreen> {
               const SliverToBoxAdapter(child: SizedBox(height: 80)),
            ],
          ),
+         ),
       ),
     );
+  }
+
+  /// Pull-to-refresh handler
+  Future<void> _onPullRefresh() async {
+    _weekCache.clear();
+    _healthDataLoaded = false;
+    await _loadHealthDataOnce();
+    await _loadWeekDataForDate(_selectedDate);
+    await _loadMealsForSelectedDay();
   }
 
   Widget _buildCalorieBox(String label, int value, Color color) {
