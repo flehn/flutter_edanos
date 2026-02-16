@@ -4,6 +4,8 @@ import '../theme/circle_progress_painter.dart';
 import '../services/meal_repository.dart';
 import '../services/firestore_service.dart';
 import '../services/health_service.dart';
+import '../services/progress_service.dart';
+import '../widgets/progress_dots_widget.dart';
 
 /// Goals Screen - User's daily calorie and macro targets
 class GoalsScreen extends StatefulWidget {
@@ -14,13 +16,19 @@ class GoalsScreen extends StatefulWidget {
 }
 
 class GoalsScreenState extends State<GoalsScreen> {
+  // Progress dots widget key for refreshing
+  final _progressDotsKey = GlobalKey<ProgressDotsWidgetState>();
+
   /// Public method to refresh data (called when tab becomes active)
   void refresh() {
+    _progressDotsKey.currentState?.refresh();
     _loadData();
   }
 
   // Weight goal mode: true = gain weight, false = lose weight
   bool _isGainMode = false;
+  bool _loseFat = false;
+  bool _gainMuscles = false;
 
   // Goals from Firestore
   int _calorieGoal = 2000;
@@ -42,6 +50,9 @@ class GoalsScreenState extends State<GoalsScreen> {
   int _daysTracked = 0;
   int _goalMetDays = 0;
 
+  // Past reports
+  List<Map<String, dynamic>> _reports = [];
+
   bool _isLoading = true;
 
   @override
@@ -54,12 +65,14 @@ class GoalsScreenState extends State<GoalsScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // Load goals and today's summary in parallel
+      // Load goals, today's summary, weekly stats and reports in parallel
+      final reportsFuture = ProgressService.getReportHistory();
       final results = await Future.wait([
         MealRepository.getUserGoals(),
         MealRepository.getTodaySummary(),
         _loadWeeklyStats(),
       ]);
+      _reports = await reportsFuture;
 
       final goals = results[0] as UserGoals;
       final todaySummary = results[1] as DailySummary;
@@ -73,6 +86,8 @@ class GoalsScreenState extends State<GoalsScreen> {
         _perMealCarbs = goals.perMealCarbs;
         _perMealFat = goals.perMealFat;
         _isGainMode = goals.isGainMode;
+        _loseFat = goals.loseFat;
+        _gainMuscles = goals.gainMuscles;
 
         _caloriesConsumed = todaySummary.totalCalories.round();
         _proteinConsumed = todaySummary.totalProtein.round();
@@ -136,7 +151,9 @@ class GoalsScreenState extends State<GoalsScreen> {
         dailyCarbs: carbs,
         dailyFat: fat,
         dailyFiber: 30, // Default
-        isGainMode: _isGainMode, // Preserve the weight mode setting
+        isGainMode: _isGainMode,
+        loseFat: _loseFat,
+        gainMuscles: _gainMuscles,
         perMealProtein: _perMealProtein,
         perMealCarbs: _perMealCarbs,
         perMealFat: _perMealFat,
@@ -209,7 +226,17 @@ class GoalsScreenState extends State<GoalsScreen> {
               // Weight goal mode toggle
               _buildWeightModeToggle(),
 
-              const SizedBox(height: 24),
+              const SizedBox(height: 12),
+
+              // Goal detail chips
+              _buildGoalChips(),
+
+              const SizedBox(height: 16),
+
+              // 20-day progress dots
+              ProgressDotsWidget(key: _progressDotsKey),
+
+              const SizedBox(height: 16),
 
               // Today's Progress title
               const Text(
@@ -262,6 +289,11 @@ class GoalsScreenState extends State<GoalsScreen> {
 
               // Weekly summary
               _buildWeeklySummary(),
+
+              const SizedBox(height: 32),
+
+              // Past Reports
+              if (_reports.isNotEmpty) _buildReportHistory(),
             ],
           ),
         ),
@@ -283,6 +315,8 @@ class GoalsScreenState extends State<GoalsScreen> {
         dailyFat: _fatGoal,
         dailyFiber: 30,
         isGainMode: isGainMode,
+        loseFat: _loseFat,
+        gainMuscles: _gainMuscles,
         perMealProtein: _perMealProtein,
         perMealCarbs: _perMealCarbs,
         perMealFat: _perMealFat,
@@ -388,6 +422,70 @@ class GoalsScreenState extends State<GoalsScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildGoalChips() {
+    return Row(
+      children: [
+        _buildGoalChip('Lose fat', _loseFat, (val) {
+          setState(() => _loseFat = val);
+          _saveGoalChips();
+        }),
+        const SizedBox(width: 8),
+        _buildGoalChip('Gain muscles', _gainMuscles, (val) {
+          setState(() => _gainMuscles = val);
+          _saveGoalChips();
+        }),
+      ],
+    );
+  }
+
+  Widget _buildGoalChip(String label, bool selected, ValueChanged<bool> onChanged) {
+    return GestureDetector(
+      onTap: () => onChanged(!selected),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected
+              ? AppTheme.primaryBlue.withOpacity(0.2)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: selected ? AppTheme.primaryBlue : AppTheme.textTertiary.withOpacity(0.4),
+            width: 1.5,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+            color: selected ? AppTheme.primaryBlue : AppTheme.textTertiary,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _saveGoalChips() async {
+    try {
+      final goals = UserGoals(
+        dailyCalories: _calorieGoal,
+        dailyProtein: _proteinGoal,
+        dailyCarbs: _carbsGoal,
+        dailyFat: _fatGoal,
+        dailyFiber: 30,
+        isGainMode: _isGainMode,
+        loseFat: _loseFat,
+        gainMuscles: _gainMuscles,
+        perMealProtein: _perMealProtein,
+        perMealCarbs: _perMealCarbs,
+        perMealFat: _perMealFat,
+      );
+      await MealRepository.saveUserGoals(goals);
+    } catch (e) {
+      debugPrint('Error saving goal chips: $e');
+    }
   }
 
   Widget _buildCircularProgress(
@@ -575,6 +673,183 @@ class GoalsScreenState extends State<GoalsScreen> {
     );
   }
 
+  Widget _buildReportHistory() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Past Reports',
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: AppTheme.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 12),
+        ..._reports.map((report) => _buildReportCard(report)),
+      ],
+    );
+  }
+
+  Widget _buildReportCard(Map<String, dynamic> report) {
+    final score = (report['progressScore'] as num?)?.toInt() ?? 0;
+    final evaluatedAt = report['evaluatedAt'] as String?;
+    String dateStr = '';
+    if (evaluatedAt != null) {
+      final dt = DateTime.tryParse(evaluatedAt);
+      if (dt != null) {
+        dateStr = '${dt.day.toString().padLeft(2, '0')}.${dt.month.toString().padLeft(2, '0')}.${dt.year}';
+      }
+    }
+
+    Color scoreColor;
+    if (score >= 8) {
+      scoreColor = AppTheme.positiveColor;
+    } else if (score >= 5) {
+      scoreColor = AppTheme.warningColor;
+    } else {
+      scoreColor = AppTheme.negativeColor;
+    }
+
+    return GestureDetector(
+      onTap: () => _showReportDialog(report),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: AppTheme.cardDark,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.assessment, size: 20, color: AppTheme.primaryBlue),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                dateStr,
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: AppTheme.textPrimary,
+                ),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: scoreColor.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: scoreColor),
+              ),
+              child: Text(
+                '$score/10',
+                style: TextStyle(
+                  color: scoreColor,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Icon(Icons.chevron_right, size: 20, color: AppTheme.textTertiary),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showReportDialog(Map<String, dynamic> evaluation) {
+    final score = (evaluation['progressScore'] as num?)?.toInt() ?? 5;
+    Color scoreColor;
+    if (score >= 8) {
+      scoreColor = AppTheme.positiveColor;
+    } else if (score >= 5) {
+      scoreColor = AppTheme.warningColor;
+    } else {
+      scoreColor = AppTheme.negativeColor;
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppTheme.surfaceDark,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Text(
+              '20-Day Progress',
+              style: TextStyle(color: AppTheme.textPrimary, fontSize: 18),
+            ),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: scoreColor.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: scoreColor),
+              ),
+              child: Text(
+                '$score/10',
+                style: TextStyle(
+                  color: scoreColor,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (evaluation['overallProgress'] != null) ...[
+                _buildReportSection(Icons.analytics, 'Overall', evaluation['overallProgress'] as String, AppTheme.primaryBlue),
+                const SizedBox(height: 16),
+              ],
+              if (evaluation['strengths'] != null) ...[
+                _buildReportSection(Icons.check_circle, 'Strengths', evaluation['strengths'] as String, AppTheme.positiveColor),
+                const SizedBox(height: 16),
+              ],
+              if (evaluation['improvements'] != null) ...[
+                _buildReportSection(Icons.trending_up, 'Improvements', evaluation['improvements'] as String, AppTheme.warningColor),
+                const SizedBox(height: 16),
+              ],
+              if (evaluation['mealTimingFeedback'] != null)
+                _buildReportSection(Icons.schedule, 'Meal Timing', evaluation['mealTimingFeedback'] as String, AppTheme.textSecondary),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReportSection(IconData icon, String title, String content, Color color) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 16, color: color),
+            const SizedBox(width: 6),
+            Text(title, style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 13)),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          content,
+          style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13, height: 1.4),
+        ),
+      ],
+    );
+  }
+
   void _showEditGoalsSheet() {
     showModalBottomSheet(
       context: context,
@@ -673,6 +948,7 @@ class _EditGoalsSheetState extends State<_EditGoalsSheet> {
     
     // Add listeners for auto-calculating 4th macro field
     _caloriesController.addListener(() => _onMacroFieldChanged('calories'));
+    _proteinController.addListener(() => _onMacroFieldChanged('protein'));
     _carbsController.addListener(() => _onMacroFieldChanged('carbs'));
     _fatController.addListener(() => _onMacroFieldChanged('fat'));
 
@@ -740,27 +1016,33 @@ class _EditGoalsSheetState extends State<_EditGoalsSheet> {
   /// Auto-calculate the missing macro when 3 of 4 are set
   /// Formula: calories = 4*protein + 4*carbs + 9*fat
   void _tryAutoCalculateMissingMacro() {
-    final calories = int.tryParse(_caloriesController.text);
-    final protein = int.tryParse(_proteinController.text);
-    final carbs = int.tryParse(_carbsController.text);
-    final fat = int.tryParse(_fatController.text);
+    final caloriesText = _caloriesController.text.trim();
+    final proteinText = _proteinController.text.trim();
+    final carbsText = _carbsController.text.trim();
+    final fatText = _fatController.text.trim();
 
-    // Count how many fields have valid values
+    final calories = caloriesText.isNotEmpty ? int.tryParse(caloriesText) : null;
+    final protein = proteinText.isNotEmpty ? int.tryParse(proteinText) : null;
+    final carbs = carbsText.isNotEmpty ? int.tryParse(carbsText) : null;
+    final fat = fatText.isNotEmpty ? int.tryParse(fatText) : null;
+
+    // Count how many fields have valid values (0 is valid, only null/empty is "not filled")
     int filledCount = 0;
-    if (calories != null && calories > 0) filledCount++;
-    if (protein != null && protein > 0) filledCount++;
-    if (carbs != null && carbs > 0) filledCount++;
-    if (fat != null && fat > 0) filledCount++;
+    if (calories != null) filledCount++;
+    if (protein != null) filledCount++;
+    if (carbs != null) filledCount++;
+    if (fat != null) filledCount++;
 
     // Only calculate if exactly 3 fields are filled
     if (filledCount != 3) return;
 
     // Determine which field is missing and calculate it
-    if (calories == null || calories <= 0) {
+    // Don't auto-calculate into the field the user is currently editing
+    if (calories == null && _lastEditedMacroField != 'calories') {
       // Calculate calories from macros
       final calculated = (protein! * 4) + (carbs! * 4) + (fat! * 9);
       _caloriesController.text = calculated.toString();
-    } else if (protein == null || protein <= 0) {
+    } else if (protein == null && _lastEditedMacroField != 'protein') {
       // Calculate protein: protein = (calories - 4*carbs - 9*fat) / 4
       final proteinCalories = calories! - (carbs! * 4) - (fat! * 9);
       if (proteinCalories > 0) {
@@ -770,14 +1052,14 @@ class _EditGoalsSheetState extends State<_EditGoalsSheet> {
         _proteinController.addListener(_onProteinChanged);
         _selectedProteinPreset = null;
       }
-    } else if (carbs == null || carbs <= 0) {
+    } else if (carbs == null && _lastEditedMacroField != 'carbs') {
       // Calculate carbs: carbs = (calories - 4*protein - 9*fat) / 4
       final carbsCalories = calories! - (protein! * 4) - (fat! * 9);
       if (carbsCalories > 0) {
         final calculated = (carbsCalories / 4).round();
         _carbsController.text = calculated.toString();
       }
-    } else if (fat == null || fat <= 0) {
+    } else if (fat == null && _lastEditedMacroField != 'fat') {
       // Calculate fat: fat = (calories - 4*protein - 4*carbs) / 9
       final fatCalories = calories! - (protein! * 4) - (carbs! * 4);
       if (fatCalories > 0) {
@@ -866,7 +1148,12 @@ class _EditGoalsSheetState extends State<_EditGoalsSheet> {
               ),
             ],
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 8),
+          Text(
+            'These are not recommendations. You can freely set your individual goals.',
+            style: TextStyle(fontSize: 13, color: AppTheme.textTertiary),
+          ),
+          const SizedBox(height: 20),
           _buildGoalInput('Daily Calories', _caloriesController, 'kcal'),
           const SizedBox(height: 16),
           _buildGoalInput('Protein', _proteinController, 'g'),
@@ -926,6 +1213,11 @@ class _EditGoalsSheetState extends State<_EditGoalsSheet> {
               fontWeight: FontWeight.w600,
               color: AppTheme.textPrimary,
             ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'These are your nutrition goals per individual meal.',
+            style: TextStyle(fontSize: 13, color: AppTheme.textTertiary),
           ),
           const SizedBox(height: 12),
           _buildGoalInput('Protein per meal', _perMealProteinController, 'g'),

@@ -400,6 +400,8 @@ class UserGoals {
   final int dailyFat;
   final int dailyFiber;
   final bool isGainMode; // true = gain weight, false = lose weight
+  final bool loseFat;
+  final bool gainMuscles;
   final int perMealProtein;
   final int perMealCarbs;
   final int perMealFat;
@@ -411,6 +413,8 @@ class UserGoals {
     required this.dailyFat,
     required this.dailyFiber,
     this.isGainMode = false,
+    this.loseFat = false,
+    this.gainMuscles = false,
     required this.perMealProtein,
     required this.perMealCarbs,
     required this.perMealFat,
@@ -424,6 +428,8 @@ class UserGoals {
       dailyFat: 67,
       dailyFiber: 30,
       isGainMode: false,
+      loseFat: false,
+      gainMuscles: false,
       perMealProtein: 40,
       perMealCarbs: 40,
       perMealFat: 20,
@@ -438,6 +444,8 @@ class UserGoals {
       dailyFat: data['dailyFat'] ?? 67,
       dailyFiber: data['dailyFiber'] ?? 30,
       isGainMode: data['isGainMode'] ?? false,
+      loseFat: data['loseFat'] ?? false,
+      gainMuscles: data['gainMuscles'] ?? false,
       perMealProtein: data['perMealProtein'] ?? 40,
       perMealCarbs: data['perMealCarbs'] ?? 40,
       perMealFat: data['perMealFat'] ?? 20,
@@ -452,6 +460,8 @@ class UserGoals {
       'dailyFat': dailyFat,
       'dailyFiber': dailyFiber,
       'isGainMode': isGainMode,
+      'loseFat': loseFat,
+      'gainMuscles': gainMuscles,
       'perMealProtein': perMealProtein,
       'perMealCarbs': perMealCarbs,
       'perMealFat': perMealFat,
@@ -466,6 +476,8 @@ class UserGoals {
     int? dailyFat,
     int? dailyFiber,
     bool? isGainMode,
+    bool? loseFat,
+    bool? gainMuscles,
     int? perMealProtein,
     int? perMealCarbs,
     int? perMealFat,
@@ -477,6 +489,8 @@ class UserGoals {
       dailyFat: dailyFat ?? this.dailyFat,
       dailyFiber: dailyFiber ?? this.dailyFiber,
       isGainMode: isGainMode ?? this.isGainMode,
+      loseFat: loseFat ?? this.loseFat,
+      gainMuscles: gainMuscles ?? this.gainMuscles,
       perMealProtein: perMealProtein ?? this.perMealProtein,
       perMealCarbs: perMealCarbs ?? this.perMealCarbs,
       perMealFat: perMealFat ?? this.perMealFat,

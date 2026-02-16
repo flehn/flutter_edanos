@@ -200,7 +200,18 @@ class ProgressDotsWidgetState extends State<ProgressDotsWidget> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Description text
+          const Text(
+            'Scan 20 days in a row to get feedback about your progress',
+            style: TextStyle(
+              fontSize: 12,
+              color: AppTheme.textTertiary,
+            ),
+            textAlign: TextAlign.left,
+          ),
+          const SizedBox(height: 8),
           // Dots row
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -230,49 +241,59 @@ class ProgressDotsWidgetState extends State<ProgressDotsWidget> {
               );
             }),
           ),
-          const SizedBox(height: 6),
-          // Status row
+          const SizedBox(height: 8),
+          // Bottom row: More info (left) + Get report (right)
           Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              if (snap.isEligibleForEvaluation || hasEvaluation)
-                GestureDetector(
-                  onTap: snap.isEligibleForEvaluation
-                      ? _runEvaluation
-                      : () => _showEvaluationDialog(snap.lastEvaluation!),
+              GestureDetector(
+                onTap: _showInfoDialog,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.info_outline,
+                      size: 14,
+                      color: AppTheme.textTertiary,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'More info',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.textTertiary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              GestureDetector(
+                onTap: hasEvaluation
+                    ? () => _showEvaluationDialog(snap.lastEvaluation!)
+                    : _runEvaluation,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryBlue,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                   child: _isEvaluating
                       ? const SizedBox(
                           width: 14,
                           height: 14,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: AppTheme.primaryBlue,
+                            color: Colors.white,
                           ),
                         )
                       : Text(
-                          hasEvaluation ? 'View progress report' : 'Get progress feedback!',
+                          hasEvaluation ? 'View report' : 'Get report',
                           style: const TextStyle(
-                            color: AppTheme.primaryBlue,
+                            color: Colors.white,
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
-                )
-              else
-                Text(
-                  '${snap.daysRemaining} ${snap.daysRemaining == 1 ? 'day' : 'days'} till progress feedback',
-                  style: TextStyle(
-                    color: AppTheme.textTertiary,
-                    fontSize: 11,
-                  ),
-                ),
-              const SizedBox(width: 4),
-              GestureDetector(
-                onTap: _showInfoDialog,
-                child: Icon(
-                  Icons.info_outline,
-                  size: 14,
-                  color: AppTheme.textTertiary,
                 ),
               ),
             ],

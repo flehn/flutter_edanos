@@ -520,10 +520,20 @@ Provide a brief, direct health evaluation for this day. Only focus on the presen
     required String goal,
     required int activeDays,
     required List<Map<String, dynamic>> dailySummaries,
+    Map<String, int>? averageDailyNutrition,
   }) async {
     if (_progressEvaluationModel == null) {
       throw Exception('Progress evaluation model not initialized.');
     }
+
+    final avgSection = averageDailyNutrition != null
+        ? '\nAverage Daily Nutrition: ${averageDailyNutrition['calories']} kcal, '
+          '${averageDailyNutrition['protein']}g protein, '
+          '${averageDailyNutrition['carbs']}g carbs, '
+          '${averageDailyNutrition['fat']}g fat, '
+          '${averageDailyNutrition['fiber']}g fiber, '
+          '${averageDailyNutrition['sugar']}g sugar\n'
+        : '';
 
     final prompt = """
 Evaluate this user's 20-day nutrition progress and give detailed, evidence-based feedback.
@@ -535,7 +545,7 @@ User Profile:
 - Weight: ${weightKg.toStringAsFixed(1)} kg
 - Goal: $goal
 - Active tracking days: $activeDays out of 20
-
+$avgSection
 Daily Meal Data (last 20 days):
 ${dailySummaries.map((d) => '${d['date']}: ${d['mealCount']} meals, ${d['calories']} kcal, ${d['protein']}g protein, ${d['carbs']}g carbs, ${d['fat']}g fat, ${d['fiber']}g fiber, ${d['sugar']}g sugar | Meals: ${d['mealDetails']}').join('\n')}
 

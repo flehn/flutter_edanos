@@ -110,6 +110,26 @@ class ProgressService {
       }
     }
 
+    // Check for 2+ consecutive inactive days within elapsed days — reset cycle if found
+    int consecutiveInactive = 0;
+    for (int i = 0; i < totalDays; i++) {
+      if (!activeDayFlags[i]) {
+        consecutiveInactive++;
+        if (consecutiveInactive >= 2) {
+          // Reset cycle: start fresh from today
+          final resetData = ProgressData(
+            cycleStartDate: today,
+            activeDays: [],
+            lastEvaluation: null,
+          );
+          await saveProgressData(resetData);
+          return _buildSnapshot(resetData, today);
+        }
+      } else {
+        consecutiveInactive = 0;
+      }
+    }
+
     // Update stored active days
     if (activeDayDates.length != data.activeDays.length ||
         !activeDayDates.containsAll(data.activeDays.toSet())) {
@@ -177,7 +197,28 @@ class ProgressService {
     // Get user profile
     final settings = await MealRepository.getUserSettings();
     final goals = await MealRepository.getUserGoals();
-    final goalDesc = goals.isGainMode ? 'gain weight / build muscle' : 'lose weight / lose fat';
+
+    // Build richer goal description from all goal flags
+    final goalParts = <String>[];
+    goalParts.add(goals.isGainMode ? 'gain weight' : 'lose weight');
+    if (goals.loseFat) goalParts.add('lose fat');
+    if (goals.gainMuscles) goalParts.add('gain muscles');
+    final goalDesc = goalParts.join(', ');
+
+    // Compute average daily nutrition across active days
+    final activeSummaries = dailySummaries.where((d) => (d['mealCount'] as int) > 0).toList();
+    Map<String, int>? averageDailyNutrition;
+    if (activeSummaries.isNotEmpty) {
+      final count = activeSummaries.length;
+      averageDailyNutrition = {
+        'calories': (activeSummaries.fold(0, (sum, d) => sum + (d['calories'] as int)) / count).round(),
+        'protein': (activeSummaries.fold(0, (sum, d) => sum + (d['protein'] as int)) / count).round(),
+        'carbs': (activeSummaries.fold(0, (sum, d) => sum + (d['carbs'] as int)) / count).round(),
+        'fat': (activeSummaries.fold(0, (sum, d) => sum + (d['fat'] as int)) / count).round(),
+        'fiber': (activeSummaries.fold(0, (sum, d) => sum + (d['fiber'] as int)) / count).round(),
+        'sugar': (activeSummaries.fold(0, (sum, d) => sum + (d['sugar'] as int)) / count).round(),
+      };
+    }
 
     final activeDayCount = data.activeDays.length;
 
@@ -189,6 +230,7 @@ class ProgressService {
       goal: goalDesc,
       activeDays: activeDayCount,
       dailySummaries: dailySummaries,
+      averageDailyNutrition: averageDailyNutrition,
     );
 
     if (result == null) return null;
@@ -198,14 +240,31 @@ class ProgressService {
 
     evaluation['evaluatedAt'] = DateTime.now().toIso8601String();
     evaluation['activeDays'] = activeDayCount;
+    evaluation['cycleStartDate'] = data.cycleStartDate?.toIso8601String();
+    evaluation['cycleEndDate'] = cycleEnd.toIso8601String();
 
-    // Save evaluation
+    // Save evaluation as current
     final updatedData = ProgressData(
       cycleStartDate: data.cycleStartDate,
       activeDays: data.activeDays,
       lastEvaluation: evaluation,
     );
     await saveProgressData(updatedData);
+
+    // Save a copy to the reports history collection
+    await _db
+        .collection('users')
+        .doc(_userId)
+        .collection('reports')
+        .add(evaluation);
+
+    // Reset the cycle so a new 20-day cycle starts
+    final resetData = ProgressData(
+      cycleStartDate: null,
+      activeDays: [],
+      lastEvaluation: null,
+    );
+    await saveProgressData(resetData);
 
     return evaluation;
   }
@@ -231,6 +290,21 @@ class ProgressService {
       data.activeDays.add(todayKey);
       await saveProgressData(data);
     }
+  }
+
+  /// Fetch all saved reports, newest first.
+  static Future<List<Map<String, dynamic>>> getReportHistory() async {
+    final snapshot = await _db
+        .collection('users')
+        .doc(_userId)
+        .collection('reports')
+        .orderBy('evaluatedAt', descending: true)
+        .get();
+    return snapshot.docs.map((doc) {
+      final data = doc.data();
+      data['id'] = doc.id;
+      return data;
+    }).toList();
   }
 
   static String _dateKey(DateTime d) =>
