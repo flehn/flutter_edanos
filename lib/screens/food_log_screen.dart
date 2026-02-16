@@ -8,6 +8,7 @@ import '../services/firestore_service.dart';
 import '../services/health_service.dart';
 import '../gemini_service.dart';
 import 'meal_detail_screen.dart';
+import 'education_info_screen.dart';
 
 /// Food Log Screen - Daily overview with weekly chart
 class FoodLogScreen extends StatefulWidget {
@@ -918,6 +919,36 @@ class FoodLogScreenState extends State<FoodLogScreen> {
                   // Consumed vs Recommended comparison
                   const SizedBox(height: 8),
                   _buildNutrientComparison(),
+                  const SizedBox(height: 16),
+                  // Learn more link
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const EducationInfoScreen(),
+                        ),
+                      );
+                    },
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.info_outline,
+                          color: AppTheme.primaryBlue,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Learn more about sugar and fat',
+                          style: TextStyle(
+                            color: AppTheme.primaryBlue,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
