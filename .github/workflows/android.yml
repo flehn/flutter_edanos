@@ -1,10 +1,6 @@
 name: Android CI / Deploy to Play Store
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -39,12 +35,10 @@ jobs:
           cache: true
 
       - name: Decode keystore
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > ${{ github.workspace }}/android/app/edanos-upload-keystore.jks
 
       - name: Create key.properties
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           cat > ${{ github.workspace }}/android/app/key.properties << EOF
           storePassword=${{ secrets.KEYSTORE_PASSWORD }}
@@ -74,7 +68,6 @@ jobs:
         run: bundle install
 
       - name: Deploy to Play Store (Internal Track)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         working-directory: android
         env:
           PLAY_STORE_JSON_KEY: ${{ secrets.PLAY_STORE_JSON_KEY }}

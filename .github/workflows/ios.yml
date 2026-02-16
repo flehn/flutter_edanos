@@ -1,10 +1,6 @@
 name: iOS CI / Deploy to TestFlight
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -51,7 +47,6 @@ jobs:
         run: flutter build ios --release --no-codesign --build-number=${{ github.run_number }}
 
       - name: Setup SSH for Match certs repo
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.MATCH_GIT_PRIVATE_KEY }}
@@ -61,7 +56,6 @@ jobs:
         run: bundle install
 
       - name: Build, sign and deploy to TestFlight
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         working-directory: ios
         env:
           APP_STORE_KEY_ID: ${{ secrets.APP_STORE_KEY_ID }}
