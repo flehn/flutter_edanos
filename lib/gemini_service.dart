@@ -4,6 +4,7 @@ import 'package:firebase_ai/firebase_ai.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:flutter/foundation.dart';
 import 'model_config.dart';
+import 'services/remote_config_service.dart';
 import 'dart:typed_data';
 
 /// Gemini AI service for food image analysis.
@@ -23,188 +24,54 @@ class GeminiService {
   static GenerativeModel? _evaluationModel;
   static bool _isInitialized = false;
 
-  // System prompts - Base prompt with modular additions
-  static const String _basePrompt = """
-You are EdanosAI Food Analyzer. You analyze food pictures. First you classify what type of image this is:
-
-Set "image_classification" to one of:
-- "food" - an actual food dish or meal
-- "nutritional_label_on_packed_product" - a nutritional label/table on a packaged product
-- "packaged_product_only" - the front of a packaged product WITHOUT the nutritional label visible
-- "no_food_no_label" - empty plates, random pictures, or anything that is not food-related
-
-Do one of the following depending on the classification:
-
-1. For "nutritional_label_on_packed_product": extract the nutritional values from the table per 100g! Save this as one single ingredient! 
-2. For "food": identify ALL individual ingredients with their nutritional values.
-3. For "packaged_product_only": identify the product and estimate nutritional values based on typical values for that product type.
-4. For "no_food_no_label": return minimal data with no ingredients.
-
-Your task for food analysis:
-1. Identify ALL ingredients visible or described
-2. Estimate the quantity of each ingredient (convert to grams/ml)
-3. Provide nutritional values for EACH ingredient separately
-
-Convert all amounts to grams (g) or milliliters (ml).
-
-For each ingredient, provide:
-- Calories (kcal), Protein (g), Carbohydrates (g), Sugar (g)
-- Total Fat (g), Saturated Fat (g), Unsaturated Fat (g), Fiber (g)
-""";
-
-  // Comprehensive nutrients (vitamins + minerals)
-  static const String _comprehensiveNutrientsAddition = """
-
-- Fatty acids: Omega-3, Omega-6, Trans Fat
-- Minerals: Sodium, Potassium, Calcium, Magnesium, Phosphorus, Iron, Zinc, Selenium, Iodine, Copper, Manganese, Chromium
-- Vitamins: A, D, E, K, C, B1 (Thiamin), B2 (Riboflavin), B3 (Niacin), B5, B6, B7 (Biotin), B9 (Folate), B12
-- Other: Choline, Cholesterol
-
-Convert amounts to appropriate units (g, mg, mcg, IU).
-""";
-
-// System prompts - Base prompt with modular additions
-
-  static const String _aiEvaluationPrompt = """
-  Provide a brief overall health evaluation for the dish taking all ingredients into account in the field "aiEvaluation".
-  For this, consider the following:
-  - is the total amount of saturated fat above 5.0g / 100g, this is a risk factor. 
-  - is the total amount of sodium above 1.5g / 100g
-  - is the total amount of sugars above 25g raise a warnig that it contains high amount of sugar! 
-
-  Set "isHighlyProcessed" to true if the dish:
-  - chemical-based preservatives, emulsifiers like hydrogenated oils, sweeteners like high fructose corn syrup, and artificial colors and flavors.
-  - low in nutritional quality and high in saturated fats, added sugars, and sodium (salt)
-""";
-
-  // Addition for multiple images
-  static const String _multiImageAddition = """
-
-IMPORTANT for multiple images:
-- Treat each image as a SINGLE INGREDIENT of ONE combined dish
-- Combine all images into ONE dish with multiple ingredients
-- Name the dish based on the combination of all ingredients
-""";
-
-
-  // Search-specific addition
-  static const String _searchPrompt = """
-
-You are a nutrition expert providing nutritional information for a given ingredient.
-1. Use Google Search to find accurate, up-to-date nutritional information
-2. Provide COMPLETE nutritional values per standard serving (typically 100g unless specified)
-3. Be accurate and use reliable nutritional databases
-4. If the ingredient is ambiguous (e.g., "chicken"), default to the most common form (e.g., "chicken breast, cooked")
-
-Always return the nutritional information in the following JSON format and return nothing else:
-For each ingredient, provide the values per 100g if not specified otherwise:
-- Calories (kcal), 
-- Protein (g), 
-- Carbohydrates (g), 
-- Sugar (g)
-- Total Fat (g), 
-- Saturated Fat (g), 
-- Unsaturated Fat (g), 
-- Fiber (g)
-Return only the JSON format and nothing else!
-""";
-
-  static const String _audioAddition = """
-
-Listen to this audio recording. First, determine if the user is describing food or something else.
-
-Set "image_classification" to one of:
-- "food" - the user is describing a food dish, meal, or ingredient
-- "no_food_no_label" - the user is NOT describing food (random speech, unrelated topic, etc.)
-
-If "no_food_no_label": return minimal data with no ingredients.
-
-If "food": identify ALL food items and ingredients mentioned.
-- Extract or estimate the quantity of each ingredient (convert to grams/ml)
-- Provide nutritional values for EACH ingredient separately
-- If the user mentions specific quantities, use those. Otherwise, estimate typical serving sizes.
-
-Convert all amounts to grams (g) or milliliters (ml).
-
-For each ingredient, provide:
-- Calories (kcal), Protein (g), Carbohydrates (g), Sugar (g)
-- Total Fat (g), Saturated Fat (g), Unsaturated Fat (g), Fiber (g)
-""";
-
-  // AI Evaluation prompt for daily health summary
-  static const String _aiEvaluationPrompt_daysummarie = """
-You are a nutrition expert providing brief health evaluations.
-Based on the user's profile and daily consumption data provided, evaluate their nutrition.
-
-For "good": Describe what they did well today (1-2 sentences, be encouraging).
-For "critical": Describe any health concerns or areas for improvement (1-2 sentences, be constructive).
-For "processedFoodFeedback": Evaluate the processed food consumption based on the counts provided.
-  - If 0 processed foods were scanned: give an encouraging compliment (e.g. "Great job avoiding processed foods today!")
-  - If more than 50% of scanned items were processed: give a constructive warning about relying on processed foods
-  - Otherwise: give a brief neutral or mildly encouraging note
-
-Focus on:
-- total sugar intake (max 22g/day for women, 37g/day for men)
-- Saturated fat (max 10% of total calories)
-- Fiber (min 25g/day for women, 30g/day for men)  
-- Protein (min 0.8g per kg body weight)
-- Overall calorie balance vs their goal
-
-Be concise and actionable. If everything looks good, say so. If there are issues, prioritize the most important one.
-""";
-
-
-  // Composed prompts (multi-image addition is added dynamically in analyzeImages)
-  static String get _essentialPrompt =>
-      _basePrompt + _aiEvaluationPrompt;
-
-  static String get _comprehensivePrompt =>
-      _basePrompt + _comprehensiveNutrientsAddition + _aiEvaluationPrompt;
-
-
-  static String get _audioPrompt => _audioAddition;
-
   /// Initialize the Gemini models.
-  /// Firebase must be initialized before calling this.
+  /// Firebase and RemoteConfigService must be initialized before calling this.
   static Future<void> initialize() async {
     if (_isInitialized) return;
 
+    final analysisModelName = RemoteConfigService.analysisModel;
+    final searchModelName = RemoteConfigService.searchModel;
+    final evaluationModelName = RemoteConfigService.evaluationModel;
+
+    debugPrint('Gemini models — analysis: $analysisModelName, search: $searchModelName, evaluation: $evaluationModelName');
+
+    final vertexAI = FirebaseAI.vertexAI(location: 'europe-west1', appCheck: FirebaseAppCheck.instance);
+
     // Analysis Model - Essential (macros only)
-    _analysisModelEssential = FirebaseAI.vertexAI(location: 'europe-west1', appCheck: FirebaseAppCheck.instance).generativeModel(
-      model: 'gemini-2.5-flash-lite',
+    _analysisModelEssential = vertexAI.generativeModel(
+      model: analysisModelName,
       generationConfig: GenerationConfig(
         responseMimeType: 'application/json',
         responseSchema: jsonSchema_essentialNutrition,
       ),
-      systemInstruction: Content.text(_essentialPrompt),
+      systemInstruction: Content.text(RemoteConfigService.essentialPrompt),
     );
 
     // Analysis Model - Comprehensive (macros + vitamins/minerals)
-    _analysisModelComprehensive = FirebaseAI.vertexAI(location: 'europe-west1', appCheck: FirebaseAppCheck.instance).generativeModel(
-      model: 'gemini-2.5-flash-lite',
+    _analysisModelComprehensive = vertexAI.generativeModel(
+      model: analysisModelName,
       generationConfig: GenerationConfig(
         responseMimeType: 'application/json',
         responseSchema: jsonSchema_comprehensiveNutrition,
       ),
-      systemInstruction: Content.text(_comprehensivePrompt),
+      systemInstruction: Content.text(RemoteConfigService.comprehensivePrompt),
     );
 
     // Search Model with Google Search (no schema - controlled generation not supported)
-    _searchModel = FirebaseAI.vertexAI(location: 'europe-west1', appCheck: FirebaseAppCheck.instance).generativeModel(
-      model: 'gemini-2.5-flash-lite',
+    _searchModel = vertexAI.generativeModel(
+      model: searchModelName,
       tools: [Tool.googleSearch()],
-      systemInstruction: Content.text(_searchPrompt),
+      systemInstruction: Content.text(RemoteConfigService.searchPrompt),
     );
 
-
-    // Evaluation Model (health evaluation) - using lite model
-    _evaluationModel = FirebaseAI.vertexAI(location: 'europe-west1', appCheck: FirebaseAppCheck.instance).generativeModel(
-      model: 'gemini-2.5-flash-lite',
+    // Evaluation Model (health evaluation)
+    _evaluationModel = vertexAI.generativeModel(
+      model: evaluationModelName,
       generationConfig: GenerationConfig(
         responseMimeType: 'application/json',
         responseSchema: jsonSchema_aievaluation,
       ),
-      systemInstruction: Content.text(_aiEvaluationPrompt_daysummarie),
+      systemInstruction: Content.text(RemoteConfigService.daySummaryPrompt),
     );
 
     _isInitialized = true;
@@ -243,7 +110,7 @@ Be concise and actionable. If everything looks good, say so. If there are issues
     } else if (imageBytesList.length == 1) {
       prompt = "Analyze this food image and identify all ingredients with their nutritional values.";
     } else {
-      prompt = _multiImageAddition +
+      prompt = RemoteConfigService.multiImageAddition +
           "Analyze these ${imageBytesList.length} food images. Each image represents ONE ingredient. Combine them into a single dish.";
     }
 
@@ -540,7 +407,7 @@ Be concise and actionable. If everything looks good, say so. If there are issues
 
     // Build content with audio
     final parts = <Part>[
-      TextPart(_audioPrompt),
+      TextPart(RemoteConfigService.audioPrompt),
       InlineDataPart('audio/aac', audioBytes),
     ];
 
@@ -572,7 +439,6 @@ Be concise and actionable. If everything looks good, say so. If there are issues
     required double totalProtein,
     required double totalCarbs,
     required double totalFat,
-    required double totalSaturatedFat,
     required double totalFiber,
     required double totalSugar,
     required List<String> meals, // List of meal descriptions with ingredients
@@ -584,10 +450,6 @@ Be concise and actionable. If everything looks good, say so. If there are issues
     }
 
     // Pre-calculate values for the AI
-    final saturatedFatCalories = totalSaturatedFat * 9; // 9 kcal per gram of fat
-    final saturatedFatPercent = totalCalories > 0
-        ? (saturatedFatCalories / totalCalories * 100)
-        : 0.0;
     final proteinPerKg = weightKg > 0 ? totalProtein / weightKg : 0.0;
     final netCalories = totalCalories - burnedCalories;
     
@@ -610,7 +472,6 @@ Today's Consumption:
 - Protein: ${totalProtein.toStringAsFixed(1)}g (${proteinPerKg.toStringAsFixed(2)}g per kg body weight - target: ≥${minProteinPerKg}g/kg)
 - Carbohydrates: ${totalCarbs.toStringAsFixed(1)}g
 - Fat: ${totalFat.toStringAsFixed(1)}g
-- Saturated Fat: ${totalSaturatedFat.toStringAsFixed(1)}g (${saturatedFatPercent.toStringAsFixed(1)}% of calories - limit: <10%)
 - Fiber: ${totalFiber.toStringAsFixed(1)}g (min target: ≥${minFiber}g)
 - Sugar: ${totalSugar.toStringAsFixed(1)}g (max limit: <${maxSugar}g)
 

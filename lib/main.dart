@@ -8,6 +8,7 @@ import 'app_shell.dart';
 import 'services/auth_service.dart';
 import 'services/notification_service.dart';
 import 'services/onboarding_service.dart';
+import 'services/remote_config_service.dart';
 import 'screens/onboarding_screen.dart';
 
 void main() async {
@@ -70,6 +71,9 @@ void main() async {
       rethrow;
     }
   }
+
+  // Initialize Remote Config (model names & prompts)
+  await RemoteConfigService.initialize();
 
   // Initialize notification service for meal reminders
   await NotificationService.initialize();
