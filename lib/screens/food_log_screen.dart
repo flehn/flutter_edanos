@@ -7,6 +7,7 @@ import '../services/meal_repository.dart';
 import '../services/firestore_service.dart';
 import '../services/health_service.dart';
 import '../gemini_service.dart';
+import '../widgets/progress_dots_widget.dart';
 import 'meal_detail_screen.dart';
 
 /// Food Log Screen - Daily overview with weekly chart
@@ -26,9 +27,13 @@ class FoodLogScreenState extends State<FoodLogScreen> {
   // Pre-compiled regex for number formatting (thousands separator)
   static final _thousandsSepRegex = RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))');
 
+  // Progress dots widget key for refreshing
+  final _progressDotsKey = GlobalKey<ProgressDotsWidgetState>();
+
   /// Public method to refresh data (called when tab becomes active or after meal changes)
   void refresh() {
     _weekCache.clear(); // Clear all cache to ensure fresh data if changes happened in other tabs
+    _progressDotsKey.currentState?.refresh();
     _refreshCurrentWeek();
   }
 
@@ -337,8 +342,13 @@ class FoodLogScreenState extends State<FoodLogScreen> {
       body: SafeArea(
          child: CustomScrollView(
            slivers: [
-             const SliverToBoxAdapter(child: SizedBox(height: 16)),
-             
+             // 0. Progress Dots (20-day tracker)
+             SliverToBoxAdapter(
+               child: ProgressDotsWidget(key: _progressDotsKey),
+             ),
+
+             const SliverToBoxAdapter(child: SizedBox(height: 8)),
+
              // 1. Calories Summary
              SliverToBoxAdapter(
                child: Padding(

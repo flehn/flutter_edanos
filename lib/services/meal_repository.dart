@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart';
 import '../models/meal.dart';
 import 'firestore_service.dart';
+import 'progress_service.dart';
 import 'storage_service.dart';
 
 // Re-export FirestoreService types for convenience
@@ -20,12 +22,21 @@ class MealRepository {
   static Future<String> saveMeal(Meal meal) async {
     if (meal.imageBytes != null) {
       meal.imageUrl = await StorageService.storeImage(
-        meal.imageBytes!, 
-        meal.id, 
+        meal.imageBytes!,
+        meal.id,
         classification: meal.imageClassification,
       );
     }
-    return await FirestoreService.saveMeal(meal);
+    final result = await FirestoreService.saveMeal(meal);
+
+    // Mark today as active for the 20-day progress tracker
+    try {
+      await ProgressService.markTodayActive();
+    } catch (e) {
+      debugPrint('Failed to mark progress day: $e');
+    }
+
+    return result;
   }
 
   /// Update an existing meal

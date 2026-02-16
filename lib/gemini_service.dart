@@ -22,6 +22,7 @@ class GeminiService {
   static GenerativeModel? _analysisModelComprehensive;
   static GenerativeModel? _searchModel;
   static GenerativeModel? _evaluationModel;
+  static GenerativeModel? _progressEvaluationModel;
   static bool _isInitialized = false;
 
   /// Initialize the Gemini models.
@@ -72,6 +73,17 @@ class GeminiService {
         responseSchema: jsonSchema_aievaluation,
       ),
       systemInstruction: Content.text(RemoteConfigService.daySummaryPrompt),
+    );
+
+    // Progress Evaluation Model (20-day progress with Google Search)
+    _progressEvaluationModel = vertexAI.generativeModel(
+      model: evaluationModelName,
+      tools: [Tool.googleSearch()],
+      systemInstruction: Content.text(
+        'You are a nutrition and fitness expert evaluating a user\'s 20-day nutrition progress. '
+        'Use Google Search to look up the latest science-based nutrition recommendations when needed. '
+        'Provide evidence-based, actionable feedback.',
+      ),
     );
 
     _isInitialized = true;
@@ -492,6 +504,64 @@ Provide a brief, direct health evaluation for this day. Only focus on the presen
 
     final content = [Content.text(prompt)];
     final response = await _evaluationModel!.generateContent(content);
+    return response.text;
+  }
+
+  // ============================================
+  // 20-DAY PROGRESS EVALUATION
+  // ============================================
+
+  /// Evaluate user's 20-day progress based on all meals and goals.
+  /// Uses Google Search for latest nutrition science recommendations.
+  static Future<String?> evaluateProgress({
+    required String gender,
+    required int age,
+    required double weightKg,
+    required String goal,
+    required int activeDays,
+    required List<Map<String, dynamic>> dailySummaries,
+  }) async {
+    if (_progressEvaluationModel == null) {
+      throw Exception('Progress evaluation model not initialized.');
+    }
+
+    final prompt = """
+Evaluate this user's 20-day nutrition progress and give detailed, evidence-based feedback.
+Use Google Search to verify the latest nutritional science recommendations for this user's profile and goal.
+
+User Profile:
+- Gender: $gender
+- Age: $age years
+- Weight: ${weightKg.toStringAsFixed(1)} kg
+- Goal: $goal
+- Active tracking days: $activeDays out of 20
+
+Daily Meal Data (last 20 days):
+${dailySummaries.map((d) => '${d['date']}: ${d['mealCount']} meals, ${d['calories']} kcal, ${d['protein']}g protein, ${d['carbs']}g carbs, ${d['fat']}g fat, ${d['fiber']}g fiber, ${d['sugar']}g sugar | Meals: ${d['mealDetails']}').join('\n')}
+
+Structure your response with these exact section headers:
+
+SCORE: [a number from 1 to 10]
+
+OVERALL PROGRESS:
+[2-3 sentences: Are they on track with their goal?]
+
+STRENGTHS:
+[2-3 sentences: What they did well, highlight consistent good habits]
+
+IMPROVEMENTS:
+[2-3 sentences: Key areas for improvement, be specific and actionable]
+
+MEAL TIMING:
+[1-2 sentences: Feedback on protein distribution across meals, late-night eating, breakfast habits]
+""";
+
+    debugPrint('=== 20-Day Progress Evaluation Prompt ===');
+    debugPrint(prompt);
+    debugPrint('=========================================');
+
+    final content = [Content.text(prompt)];
+    final response = await _progressEvaluationModel!.generateContent(content);
     return response.text;
   }
 }
