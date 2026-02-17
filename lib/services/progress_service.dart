@@ -150,7 +150,7 @@ class ProgressService {
       activeDays: activeDayCount,
       activeDayFlags: activeDayFlags,
       daysRemaining: daysRemaining.clamp(0, 20),
-      isEligibleForEvaluation: activeDayCount >= 18 && data.lastEvaluation == null,
+      isEligibleForEvaluation: activeDayCount >= 1 && data.lastEvaluation == null, // TODO: restore to >= 18 after testing
       lastEvaluation: data.lastEvaluation,
     );
   }
