@@ -42,6 +42,7 @@ class AddFoodScreenState extends State<AddFoodScreen> {
   // Multi-image capture
   List<Uint8List> _capturedImages = [];
   bool _isInCaptureMode = false;
+  bool _multiplePictures = false;
 
   // Recording timer for 1-minute limit
   Timer? _recordingTimer;
@@ -337,11 +338,16 @@ class AddFoodScreenState extends State<AddFoodScreen> {
     try {
       final imageBytes = await ImagePickerService.takePhoto();
       if (imageBytes != null) {
-        // Add to captured images list and show preview
-        setState(() {
-          _capturedImages.add(imageBytes);
-          _isInCaptureMode = true;
-        });
+        if (_multiplePictures) {
+          // Multi-image mode: add to captured images list and show preview
+          setState(() {
+            _capturedImages.add(imageBytes);
+            _isInCaptureMode = true;
+          });
+        } else {
+          // Single image mode: immediately analyze
+          await _analyzeImage(imageBytes);
+        }
       }
     } catch (e) {
       setState(() {
@@ -800,6 +806,41 @@ class AddFoodScreenState extends State<AddFoodScreen> {
                   icon: Icons.camera_alt_outlined,
                   label: 'Take a picture',
                   onTap: _isAnalyzing || !_isInitialized ? null : _takePhoto,
+                ),
+
+                // Multiple pictures checkbox
+                Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: Checkbox(
+                          value: _multiplePictures,
+                          onChanged: (value) {
+                            setState(() => _multiplePictures = value ?? false);
+                          },
+                          activeColor: AppTheme.primaryBlue,
+                          side: BorderSide(color: AppTheme.textTertiary),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: () {
+                          setState(() => _multiplePictures = !_multiplePictures);
+                        },
+                        child: Text(
+                          'Multiple pictures',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: AppTheme.textSecondary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
 
                 const SizedBox(height: 16),
