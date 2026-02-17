@@ -56,6 +56,17 @@ class _MealDetailScreenState extends State<MealDetailScreen> {
     super.dispose();
   }
 
+  void _showRetrySnackBar(int attempt, int maxRetries) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Currently High Demand, retrying... ($attempt/$maxRetries)'),
+        backgroundColor: Colors.orange,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
   Future<void> _selectDate() async {
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -383,7 +394,10 @@ class _MealDetailScreenState extends State<MealDetailScreen> {
 
     setState(() => _isSearchingIngredient = true);
     try {
-      final result = await GeminiService.searchIngredient(query);
+      final result = await GeminiService.searchIngredient(
+        query,
+        onRetry: (attempt, max) => _showRetrySnackBar(attempt, max),
+      );
       if (result == null) {
         throw Exception('No response from AI');
       }
@@ -414,7 +428,10 @@ class _MealDetailScreenState extends State<MealDetailScreen> {
 
       setState(() => _isAddingIngredient = true);
 
-      final result = await GeminiService.analyzeImage(imageBytes);
+      final result = await GeminiService.analyzeImage(
+        imageBytes,
+        onRetry: (attempt, max) => _showRetrySnackBar(attempt, max),
+      );
       if (result == null) {
         throw Exception('No response from AI');
       }

@@ -1022,6 +1022,16 @@ class FoodLogScreenState extends State<FoodLogScreen> {
         meals: mealDescriptions,
         totalMealCount: totalMealCount,
         processedMealCount: processedMealCount,
+        onRetry: (attempt, max) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Currently High Demand, retrying... ($attempt/$max)'),
+              backgroundColor: Colors.orange,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        },
       );
 
       if (mounted && evaluation != null) {

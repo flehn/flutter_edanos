@@ -25,6 +25,45 @@ class GeminiService {
   static GenerativeModel? _progressEvaluationModel;
   static bool _isInitialized = false;
 
+  /// Maximum number of retries for 429 Resource Exhausted errors.
+  static const int _maxRetries = 3;
+
+  /// Delay between retries in seconds.
+  static const int _retryDelaySeconds = 2;
+
+  /// Wraps [GenerativeModel.generateContent] with retry logic for 429 errors.
+  ///
+  /// Retries up to [_maxRetries] times with [_retryDelaySeconds] between attempts.
+  /// Calls [onRetry] before each retry so callers can notify the user.
+  static Future<GenerateContentResponse> _generateContentWithRetry(
+    GenerativeModel model,
+    Iterable<Content> content, {
+    void Function(int attempt, int maxRetries)? onRetry,
+  }) async {
+    for (var attempt = 1; attempt <= _maxRetries; attempt++) {
+      try {
+        return await model.generateContent(content);
+      } catch (e) {
+        final isResourceExhausted = e.toString().contains('429') ||
+            e.toString().toUpperCase().contains('RESOURCE_EXHAUSTED');
+
+        if (!isResourceExhausted || attempt == _maxRetries) {
+          rethrow;
+        }
+
+        debugPrint(
+          'Gemini 429 Resource Exhausted — retry $attempt/$_maxRetries '
+          'in $_retryDelaySeconds s',
+        );
+        onRetry?.call(attempt, _maxRetries);
+        await Future.delayed(Duration(seconds: _retryDelaySeconds));
+      }
+    }
+
+    // Should never reach here, but satisfies the return type.
+    throw Exception('Retry logic exhausted without a result.');
+  }
+
   /// Initialize the Gemini models.
   /// Firebase and RemoteConfigService must be initialized before calling this.
   static Future<void> initialize() async {
@@ -101,6 +140,7 @@ class GeminiService {
     List<Uint8List> imageBytesList, {
     bool includeVitamins = false,
     String? additionalPrompt,
+    void Function(int attempt, int maxRetries)? onRetry,
   }) async {
     final model = includeVitamins
         ? _analysisModelComprehensive
@@ -132,7 +172,11 @@ class GeminiService {
     }
 
     final content = [Content.multi(parts)];
-    final response = await model.generateContent(content);
+    final response = await _generateContentWithRetry(
+      model,
+      content,
+      onRetry: onRetry,
+    );
     return response.text;
   }
 
@@ -141,11 +185,13 @@ class GeminiService {
     Uint8List imageBytes, {
     bool includeVitamins = false,
     String? additionalPrompt,
+    void Function(int attempt, int maxRetries)? onRetry,
   }) async {
     return analyzeImages(
       [imageBytes],
       includeVitamins: includeVitamins,
       additionalPrompt: additionalPrompt,
+      onRetry: onRetry,
     );
   }
 
@@ -158,7 +204,10 @@ class GeminiService {
   ///
   /// [searchText] - User's search input (e.g. "chicken breast", "200g rice", "1 cup oatmeal").
   /// The model infers quantities from the text.
-  static Future<String?> searchIngredient(String searchText) async {
+  static Future<String?> searchIngredient(
+    String searchText, {
+    void Function(int attempt, int maxRetries)? onRetry,
+  }) async {
     if (_searchModel == null) {
       throw Exception('Search model not initialized.');
     }
@@ -166,7 +215,11 @@ class GeminiService {
     final searchPrompt = "Look up the complete nutritional information for: $searchText\n\n";
 
     final searchContent = [Content.text(searchPrompt)];
-    final searchResponse = await _searchModel!.generateContent(searchContent);
+    final searchResponse = await _generateContentWithRetry(
+      _searchModel!,
+      searchContent,
+      onRetry: onRetry,
+    );
     final rawNutritionText = searchResponse.text;
 
     debugPrint('=== [searchIngredient] Step 1: Raw model response ===');
@@ -403,6 +456,7 @@ class GeminiService {
   static Future<String?> analyzeAudio(
     Uint8List audioBytes, {
     bool includeVitamins = false,
+    void Function(int attempt, int maxRetries)? onRetry,
   }) async {
     final model = includeVitamins
         ? _analysisModelComprehensive
@@ -423,7 +477,11 @@ class GeminiService {
     ];
 
     final content = [Content.multi(parts)];
-    final response = await model.generateContent(content);
+    final response = await _generateContentWithRetry(
+      model,
+      content,
+      onRetry: onRetry,
+    );
     return response.text;
   }
 
@@ -455,6 +513,7 @@ class GeminiService {
     required List<String> meals, // List of meal descriptions with ingredients
     required int totalMealCount,
     required int processedMealCount,
+    void Function(int attempt, int maxRetries)? onRetry,
   }) async {
     if (_evaluationModel == null) {
       throw Exception('Evaluation model not initialized.');
@@ -502,7 +561,11 @@ Provide a brief, direct health evaluation for this day. Only focus on the presen
     debugPrint('============================');
 
     final content = [Content.text(prompt)];
-    final response = await _evaluationModel!.generateContent(content);
+    final response = await _generateContentWithRetry(
+      _evaluationModel!,
+      content,
+      onRetry: onRetry,
+    );
     return response.text;
   }
 
@@ -520,6 +583,7 @@ Provide a brief, direct health evaluation for this day. Only focus on the presen
     required int activeDays,
     required List<Map<String, dynamic>> dailySummaries,
     Map<String, int>? averageDailyNutrition,
+    void Function(int attempt, int maxRetries)? onRetry,
   }) async {
     if (_progressEvaluationModel == null) {
       throw Exception('Progress evaluation model not initialized.');
@@ -570,7 +634,11 @@ MEAL TIMING:
     debugPrint('=========================================');
 
     final content = [Content.text(prompt)];
-    final response = await _progressEvaluationModel!.generateContent(content);
+    final response = await _generateContentWithRetry(
+      _progressEvaluationModel!,
+      content,
+      onRetry: onRetry,
+    );
     return response.text;
   }
 }
