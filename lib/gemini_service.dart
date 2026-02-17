@@ -33,10 +33,13 @@ class GeminiService {
     final analysisModelName = RemoteConfigService.analysisModel;
     final searchModelName = RemoteConfigService.searchModel;
     final evaluationModelName = RemoteConfigService.evaluationModel;
+    final progressEvaluationModelName = RemoteConfigService.progressEvaluationModel;
+    final vertexAiLocation = RemoteConfigService.vertexAiLocation;
 
-    debugPrint('Gemini models — analysis: $analysisModelName, search: $searchModelName, evaluation: $evaluationModelName');
+    debugPrint('Gemini models — analysis: $analysisModelName, search: $searchModelName, evaluation: $evaluationModelName, progressEvaluation: $progressEvaluationModelName');
+    debugPrint('Vertex AI location: $vertexAiLocation');
 
-    final vertexAI = FirebaseAI.vertexAI(location: 'europe-west1', appCheck: FirebaseAppCheck.instance);
+    final vertexAI = FirebaseAI.vertexAI(location: vertexAiLocation, appCheck: FirebaseAppCheck.instance);
 
     // Analysis Model - Essential (macros only)
     _analysisModelEssential = vertexAI.generativeModel(
@@ -77,13 +80,9 @@ class GeminiService {
 
     // Progress Evaluation Model (20-day progress with Google Search)
     _progressEvaluationModel = vertexAI.generativeModel(
-      model: evaluationModelName,
+      model: progressEvaluationModelName,
       tools: [Tool.googleSearch()],
-      systemInstruction: Content.text(
-        'You are a nutrition and fitness expert evaluating a user\'s 20-day nutrition progress. '
-        'Use Google Search to look up the latest science-based nutrition recommendations when needed. '
-        'Provide evidence-based, actionable feedback.',
-      ),
+      systemInstruction: Content.text(RemoteConfigService.progressEvaluationPrompt),
     );
 
     _isInitialized = true;
