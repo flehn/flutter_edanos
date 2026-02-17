@@ -30,7 +30,9 @@ class FoodLogScreenState extends State<FoodLogScreen> {
   /// Public method to refresh data (called when tab becomes active or after meal changes)
   void refresh() {
     _weekCache.clear(); // Clear all cache to ensure fresh data if changes happened in other tabs
+    _healthDataLoaded = false; // Allow health data to reload (e.g. after connecting in Settings)
     _refreshCurrentWeek();
+    _loadHealthDataOnce(); // Reload health data in case permissions changed
   }
 
   /// Force refresh the current week's data (invalidates cache)
@@ -221,8 +223,10 @@ class FoodLogScreenState extends State<FoodLogScreen> {
       }
       
       final now = DateTime.now();
-      final weekStart = now.subtract(Duration(days: now.weekday - 1));
-      
+      final weekStartRaw = now.subtract(Duration(days: now.weekday - 1));
+      // Normalize to midnight so the query captures the full day's data
+      final weekStart = DateTime(weekStartRaw.year, weekStartRaw.month, weekStartRaw.day);
+
       // Load burned calories for today
       final todayBurned = await HealthService.getBurnedCaloriesForDate(_selectedDate);
       

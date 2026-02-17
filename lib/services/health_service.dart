@@ -91,15 +91,28 @@ class HealthService {
     try {
       // Check permissions for read types
       final status = await _health.hasPermissions(_readTypes);
-      _hasPermissions = status ?? false;
-      
+
+      // On iOS, hasPermissions() always returns null because HealthKit
+      // doesn't expose permission status to apps. In this case, trust
+      // the persisted state from SharedPreferences (set when permissions
+      // were originally granted via requestPermissions()).
+      // On Android (Health Connect), hasPermissions() returns a definitive
+      // true/false, so we use and persist that value.
+      if (status == null) {
+        return _hasPermissions;
+      }
+
+      _hasPermissions = status;
+
       // Persist the permission state
       await _savePermissionState(_hasPermissions);
-      
+
       return _hasPermissions;
     } catch (e) {
       debugPrint('Error checking health permissions: $e');
-      return false;
+      // Return persisted state on error rather than false, to avoid
+      // losing a previously granted permission state
+      return _hasPermissions;
     }
   }
 
