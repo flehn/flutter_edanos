@@ -603,7 +603,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       title: 'Weight',
                       subtitle:
                           '${_healthProfile!.weightKg!.toStringAsFixed(1)} kg',
-                      onTap: () {},
+                      trailing: const SizedBox(),
                     ),
                   if (_healthProfile!.heightCm != null)
                     _buildSettingsTile(
@@ -611,27 +611,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       title: 'Height',
                       subtitle:
                           '${_healthProfile!.heightCm!.toStringAsFixed(1)} cm',
-                      onTap: () {},
+                      trailing: const SizedBox(),
                     ),
                   _buildSettingsTile(
                     icon: Icons.local_fire_department_outlined,
                     title: 'Burned Today',
                     subtitle:
                         '${_healthProfile!.todayBurnedCalories.round()} kcal',
-                    onTap: () {},
+                    trailing: const SizedBox(),
                   ),
                 ],
-                _buildSwitchTile(
-                  icon: Icons.sync,
-                  title: 'Sync Nutrition to Health',
-                  subtitle:
-                      'Write meal data to ${Platform.isIOS ? "Apple Health" : "Health Connect"}',
-                  value: _syncToHealth,
-                  onChanged: (value) {
-                    setState(() => _syncToHealth = value);
-                    _saveSettingsToFirebase();
-                  },
-                ),
               ],
               const SizedBox(height: 24),
             ],
@@ -686,12 +675,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _buildSettingsTile(
               icon: Icons.article_outlined,
               title: 'Terms of Service',
-              onTap: () {},
+              onTap: () async {
+                final url = Uri.parse('https://www.edanos.ai/terms_of_services');
+                if (await canLaunchUrl(url)) {
+                  await launchUrl(url, mode: LaunchMode.externalApplication);
+                }
+              },
             ),
             _buildSettingsTile(
               icon: Icons.privacy_tip_outlined,
               title: 'Privacy Policy',
-              onTap: () {},
+              onTap: () async {
+                final url = Uri.parse('https://www.edanos.ai/privacy_policy');
+                if (await canLaunchUrl(url)) {
+                  await launchUrl(url, mode: LaunchMode.externalApplication);
+                }
+              },
             ),
             _buildSettingsTile(
               icon: Icons.email_outlined,
