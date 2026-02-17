@@ -207,6 +207,7 @@ class ProgressDotsWidgetState extends State<ProgressDotsWidget> {
     }
 
     final hasEvaluation = snap.lastEvaluation != null;
+    final canGenerate = snap.isEligibleForEvaluation;
 
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -280,13 +281,17 @@ class ProgressDotsWidgetState extends State<ProgressDotsWidget> {
                 ),
               ),
               GestureDetector(
-                onTap: hasEvaluation
-                    ? () => _showEvaluationDialog(snap.lastEvaluation!)
-                    : _runEvaluation,
+                onTap: canGenerate
+                    ? _runEvaluation
+                    : (hasEvaluation
+                        ? () => _showEvaluationDialog(snap.lastEvaluation!)
+                        : null),
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   decoration: BoxDecoration(
-                    color: AppTheme.primaryBlue,
+                    color: canGenerate || hasEvaluation
+                        ? AppTheme.primaryBlue
+                        : AppTheme.primaryBlue.withOpacity(0.4),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: _isEvaluating
@@ -299,9 +304,13 @@ class ProgressDotsWidgetState extends State<ProgressDotsWidget> {
                           ),
                         )
                       : Text(
-                          hasEvaluation ? 'View report' : 'Get report',
-                          style: const TextStyle(
-                            color: Colors.white,
+                          canGenerate
+                              ? 'Generate report'
+                              : (hasEvaluation ? 'View report' : 'Get report'),
+                          style: TextStyle(
+                            color: canGenerate || hasEvaluation
+                                ? Colors.white
+                                : Colors.white.withOpacity(0.5),
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
                           ),
