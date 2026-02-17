@@ -19,12 +19,17 @@ class RemoteConfigService {
   static const _kSearch = 'prompt_search';
   static const _kAudio = 'prompt_audio';
   static const _kDaySummary = 'prompt_day_summary';
+  static const _kVertexAiLocation = 'vertex_ai_location';
+  static const _kProgressEvaluationModel = 'gemini_progress_evaluation_model';
+  static const _kProgressEvaluation = 'prompt_progress_evaluation';
 
   /// Default values — mirrors the current hardcoded values in GeminiService.
   static const Map<String, dynamic> _defaults = {
     _kAnalysisModel: 'gemini-2.5-flash-lite',
     _kSearchModel: 'gemini-2.5-flash-lite',
     _kEvaluationModel: 'gemini-2.5-flash-lite',
+    _kProgressEvaluationModel: 'gemini-2.5-flash-lite',
+    _kVertexAiLocation: 'europe-west1',
     _kBasePrompt: _defaultBasePrompt,
     _kComprehensiveNutrients: _defaultComprehensiveNutrients,
     _kAiEvaluation: _defaultAiEvaluation,
@@ -32,6 +37,7 @@ class RemoteConfigService {
     _kSearch: _defaultSearch,
     _kAudio: _defaultAudio,
     _kDaySummary: _defaultDaySummary,
+    _kProgressEvaluation: _defaultProgressEvaluation,
   };
 
   /// Initialize Remote Config with defaults, then fetch & activate.
@@ -60,6 +66,12 @@ class RemoteConfigService {
   static String get analysisModel => _rc.getString(_kAnalysisModel);
   static String get searchModel => _rc.getString(_kSearchModel);
   static String get evaluationModel => _rc.getString(_kEvaluationModel);
+  static String get progressEvaluationModel =>
+      _rc.getString(_kProgressEvaluationModel);
+
+  // ── Vertex AI location ─────────────────────────────────────
+
+  static String get vertexAiLocation => _rc.getString(_kVertexAiLocation);
 
   // ── Prompts ──────────────────────────────────────────────
 
@@ -71,6 +83,8 @@ class RemoteConfigService {
   static String get searchPrompt => _rc.getString(_kSearch);
   static String get audioAddition => _rc.getString(_kAudio);
   static String get daySummaryPrompt => _rc.getString(_kDaySummary);
+  static String get progressEvaluationPrompt =>
+      _rc.getString(_kProgressEvaluation);
 
   // Composed prompts (same logic as GeminiService had)
   static String get essentialPrompt => basePrompt + aiEvaluationPrompt;
@@ -199,5 +213,11 @@ Focus on:
 - Overall calorie balance vs their goal
 
 Be concise and actionable. If everything looks good, say so. If there are issues, prioritize the most important one.
+""";
+
+  static const String _defaultProgressEvaluation = """
+You are a nutrition and fitness expert evaluating a user's 20-day nutrition progress.
+Use Google Search to look up the latest science-based nutrition recommendations when needed.
+Provide evidence-based, actionable feedback.
 """;
 }
