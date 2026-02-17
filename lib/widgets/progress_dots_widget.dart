@@ -46,7 +46,18 @@ class ProgressDotsWidgetState extends State<ProgressDotsWidget> {
     setState(() => _isEvaluating = true);
 
     try {
-      final result = await ProgressService.runProgressEvaluation();
+      final result = await ProgressService.runProgressEvaluation(
+        onRetry: (attempt, max) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Currently High Demand, retrying... ($attempt/$max)'),
+              backgroundColor: Colors.orange,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        },
+      );
       if (mounted && result != null) {
         await _loadProgress();
         _showEvaluationDialog(result);

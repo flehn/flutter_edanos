@@ -60,6 +60,17 @@ class AddFoodScreenState extends State<AddFoodScreen> {
     super.dispose();
   }
 
+  void _showRetrySnackBar(int attempt, int maxRetries) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Currently High Demand, retrying... ($attempt/$maxRetries)'),
+        backgroundColor: Colors.orange,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
   Future<void> _searchIngredient(String query) async {
     if (query.trim().isEmpty) return;
 
@@ -70,7 +81,10 @@ class AddFoodScreenState extends State<AddFoodScreen> {
     });
 
     try {
-      final result = await GeminiService.searchIngredient(query);
+      final result = await GeminiService.searchIngredient(
+        query,
+        onRetry: (attempt, max) => _showRetrySnackBar(attempt, max),
+      );
 
       if (result != null) {
         final jsonData = jsonDecode(result);
@@ -226,6 +240,7 @@ class AddFoodScreenState extends State<AddFoodScreen> {
       final analysisResult = await GeminiService.analyzeImage(
         imageBytes,
         includeVitamins: useDetailedAnalysis,
+        onRetry: (attempt, max) => _showRetrySnackBar(attempt, max),
       );
       debugPrint('📊 Analysis complete, parsing response...');
 
@@ -394,6 +409,7 @@ class AddFoodScreenState extends State<AddFoodScreen> {
       final result = await GeminiService.analyzeImages(
         _capturedImages,
         includeVitamins: useDetailedAnalysis,
+        onRetry: (attempt, max) => _showRetrySnackBar(attempt, max),
       );
 
       if (mounted) {
@@ -601,6 +617,7 @@ class AddFoodScreenState extends State<AddFoodScreen> {
       final result = await GeminiService.analyzeAudio(
         audioBytes,
         includeVitamins: useDetailedAnalysis,
+        onRetry: (attempt, max) => _showRetrySnackBar(attempt, max),
       );
 
       if (mounted) {

@@ -156,7 +156,9 @@ class ProgressService {
   }
 
   /// Run the 20-day progress evaluation using Gemini + Google Search.
-  static Future<Map<String, dynamic>?> runProgressEvaluation() async {
+  static Future<Map<String, dynamic>?> runProgressEvaluation({
+    void Function(int attempt, int maxRetries)? onRetry,
+  }) async {
     final data = await getProgressData();
     if (data.cycleStartDate == null) return null;
 
@@ -231,6 +233,7 @@ class ProgressService {
       activeDays: activeDayCount,
       dailySummaries: dailySummaries,
       averageDailyNutrition: averageDailyNutrition,
+      onRetry: onRetry,
     );
 
     if (result == null) return null;
