@@ -1016,6 +1016,7 @@ class FoodLogScreenState extends State<FoodLogScreen> {
         age: settings.age,
         weightKg: settings.weight,
         goal: goalDescription,
+        proteinGoalG: goals.dailyProtein,
         burnedCalories: _burnedCalories,
         totalCalories: selectedDay.totalCalories,
         totalProtein: selectedDay.totalProtein,

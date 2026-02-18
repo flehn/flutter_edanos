@@ -503,6 +503,7 @@ class GeminiService {
     required int age,
     required double weightKg,
     required String goal,
+    required int proteinGoalG,
     required double burnedCalories,
     required double totalCalories,
     required double totalProtein,
@@ -520,13 +521,11 @@ class GeminiService {
     }
 
     // Pre-calculate values for the AI
-    final proteinPerKg = weightKg > 0 ? totalProtein / weightKg : 0.0;
     final netCalories = totalCalories - burnedCalories;
-    
+
     // Gender-specific recommendations
     final maxSugar = gender == 'female' ? 22 : 37;
     final minFiber = gender == 'female' ? 25 : 30;
-    final minProteinPerKg = 0.8;
 
     // Build comprehensive prompt with all data
     final prompt = """
@@ -539,7 +538,7 @@ User Profile:
 
 Today's Consumption:
 - Calories: ${totalCalories.round()} kcal
-- Protein: ${totalProtein.toStringAsFixed(1)}g (${proteinPerKg.toStringAsFixed(2)}g per kg body weight - target: ≥${minProteinPerKg}g/kg)
+- Protein: ${totalProtein.toStringAsFixed(1)}g (target: ${proteinGoalG}g)
 - Carbohydrates: ${totalCarbs.toStringAsFixed(1)}g
 - Fat: ${totalFat.toStringAsFixed(1)}g
 - Fiber: ${totalFiber.toStringAsFixed(1)}g (min target: ≥${minFiber}g)
