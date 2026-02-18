@@ -206,7 +206,6 @@ class ProgressDotsWidgetState extends State<ProgressDotsWidget> {
       return const SizedBox.shrink();
     }
 
-    final hasEvaluation = snap.lastEvaluation != null;
     final canGenerate = snap.isEligibleForEvaluation;
 
     return Container(
@@ -281,15 +280,11 @@ class ProgressDotsWidgetState extends State<ProgressDotsWidget> {
                 ),
               ),
               GestureDetector(
-                onTap: canGenerate
-                    ? _runEvaluation
-                    : (hasEvaluation
-                        ? () => _showEvaluationDialog(snap.lastEvaluation!)
-                        : null),
+                onTap: canGenerate ? _runEvaluation : null,
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   decoration: BoxDecoration(
-                    color: canGenerate || hasEvaluation
+                    color: canGenerate
                         ? AppTheme.primaryBlue
                         : AppTheme.primaryBlue.withOpacity(0.4),
                     borderRadius: BorderRadius.circular(12),
@@ -304,11 +299,9 @@ class ProgressDotsWidgetState extends State<ProgressDotsWidget> {
                           ),
                         )
                       : Text(
-                          canGenerate
-                              ? 'Generate report'
-                              : (hasEvaluation ? 'View report' : 'Get report'),
+                          'Generate report',
                           style: TextStyle(
-                            color: canGenerate || hasEvaluation
+                            color: canGenerate
                                 ? Colors.white
                                 : Colors.white.withOpacity(0.5),
                             fontSize: 11,
