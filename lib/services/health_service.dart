@@ -6,7 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// Service for accessing health data from Apple Health (iOS) and Health Connect (Android).
 ///
 /// Provides access to:
-/// - Burned calories (active energy)
+/// - Burned calories (active energy + resting/basal energy on iOS)
 /// - Workouts
 /// - Weight
 /// - Age (date of birth)
@@ -22,12 +22,23 @@ class HealthService {
   // Health data types we need to read
   static final List<HealthDataType> _readTypes = [
     HealthDataType.ACTIVE_ENERGY_BURNED,
+    // Resting (basal) energy is only available on iOS via HealthKit
+    if (Platform.isIOS) HealthDataType.BASAL_ENERGY_BURNED,
     HealthDataType.WORKOUT,
     HealthDataType.WEIGHT,
     HealthDataType.HEIGHT,
     // Demographics (iOS only)
     if (Platform.isIOS) HealthDataType.GENDER,
     if (Platform.isIOS) HealthDataType.BIRTH_DATE,
+  ];
+
+  /// Types to query when fetching total burned energy.
+  /// On iOS this includes both active and resting (basal) energy;
+  /// on Android only active energy is used (Health Connect surfaces
+  /// resting energy separately and summing both would double-count).
+  static List<HealthDataType> get _burnedEnergyTypes => [
+    HealthDataType.ACTIVE_ENERGY_BURNED,
+    if (Platform.isIOS) HealthDataType.BASAL_ENERGY_BURNED,
   ];
 
   // Health data types we might write (e.g., sync nutrition data)
@@ -191,7 +202,7 @@ class HealthService {
   // BURNED CALORIES
   // ============================================
 
-  /// Get total active energy burned for today
+  /// Get total burned calories for today (active + resting on iOS, active on Android)
   static Future<double> getTodayBurnedCalories() async {
     if (!_hasPermissions) return 0;
 
@@ -200,12 +211,12 @@ class HealthService {
       final startOfDay = DateTime(now.year, now.month, now.day);
 
       final data = await _health.getHealthDataFromTypes(
-        types: [HealthDataType.ACTIVE_ENERGY_BURNED],
+        types: _burnedEnergyTypes,
         startTime: startOfDay,
         endTime: now,
       );
 
-      // Sum all active energy values
+      // Sum active + resting energy values
       double totalCalories = 0;
       for (final point in data) {
         if (point.value is NumericHealthValue) {
@@ -220,7 +231,7 @@ class HealthService {
     }
   }
 
-  /// Get burned calories for a specific date
+  /// Get burned calories for a specific date (active + resting on iOS, active on Android)
   static Future<double> getBurnedCaloriesForDate(DateTime date) async {
     if (!_hasPermissions) return 0;
 
@@ -229,7 +240,7 @@ class HealthService {
       final endOfDay = startOfDay.add(const Duration(days: 1));
 
       final data = await _health.getHealthDataFromTypes(
-        types: [HealthDataType.ACTIVE_ENERGY_BURNED],
+        types: _burnedEnergyTypes,
         startTime: startOfDay,
         endTime: endOfDay,
       );
@@ -250,6 +261,7 @@ class HealthService {
 
   /// Get burned calories for the past week (for chart)
   /// OPTIMIZED: Single query for entire week instead of 7 separate queries
+  /// Returns active + resting energy combined on iOS, active only on Android.
   static Future<Map<DateTime, double>> getWeeklyBurnedCalories(
     DateTime weekStart,
   ) async {
@@ -258,9 +270,9 @@ class HealthService {
     try {
       final weekEnd = weekStart.add(const Duration(days: 7));
 
-      // Single query for entire week
+      // Single query for entire week (fetches both active and resting on iOS)
       final data = await _health.getHealthDataFromTypes(
-        types: [HealthDataType.ACTIVE_ENERGY_BURNED],
+        types: _burnedEnergyTypes,
         startTime: weekStart,
         endTime: weekEnd,
       );
