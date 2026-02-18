@@ -47,8 +47,8 @@ class GoalsScreenState extends State<GoalsScreen> {
 
   // Weekly stats (calculated from actual data)
   int _weeklyAvgCalories = 0;
-  int _daysTracked = 0;
-  int _goalMetDays = 0;
+  int _weeklyAvgProtein = 0;
+  int _weeklyAvgSugar = 0;
 
   // Past reports
   List<Map<String, dynamic>> _reports = [];
@@ -118,16 +118,16 @@ class GoalsScreenState extends State<GoalsScreen> {
 
       // Calculate stats
       int totalCalories = 0;
+      int totalProtein = 0;
+      int totalSugar = 0;
       int daysWithMeals = 0;
-      int goalMetCount = 0;
 
       for (final day in weeklySummaries) {
         if (day.mealCount > 0) {
           totalCalories += day.totalCalories.round();
+          totalProtein += day.totalProtein.round();
+          totalSugar += day.totalSugar.round();
           daysWithMeals++;
-          if (day.totalCalories <= _calorieGoal) {
-            goalMetCount++;
-          }
         }
       }
 
@@ -135,8 +135,12 @@ class GoalsScreenState extends State<GoalsScreen> {
         _weeklyAvgCalories = daysWithMeals > 0
             ? (totalCalories / daysWithMeals).round()
             : 0;
-        _daysTracked = daysWithMeals;
-        _goalMetDays = goalMetCount;
+        _weeklyAvgProtein = daysWithMeals > 0
+            ? (totalProtein / daysWithMeals).round()
+            : 0;
+        _weeklyAvgSugar = daysWithMeals > 0
+            ? (totalSugar / daysWithMeals).round()
+            : 0;
       });
     } catch (e) {
       debugPrint('Error loading weekly stats: $e');
@@ -227,6 +231,9 @@ class GoalsScreenState extends State<GoalsScreen> {
               // 20-day progress dots
               ProgressDotsWidget(key: _progressDotsKey),
 
+              // Past reports dropdown (below the feedback countdown)
+              if (_reports.isNotEmpty) _buildReportHistoryDropdown(),
+
               const SizedBox(height: 16),
 
               // Today's Progress title
@@ -283,8 +290,6 @@ class GoalsScreenState extends State<GoalsScreen> {
 
               const SizedBox(height: 32),
 
-              // Past Reports
-              if (_reports.isNotEmpty) _buildReportHistory(),
             ],
           ),
         ),
@@ -578,13 +583,13 @@ class GoalsScreenState extends State<GoalsScreen> {
               height: 50,
               color: Colors.white.withOpacity(0.3),
             ),
-            _buildWeekStat('Days Tracked', '$_daysTracked', 'of 7'),
+            _buildWeekStat('Avg. Protein', '$_weeklyAvgProtein', 'g'),
             Container(
               width: 1,
               height: 50,
               color: Colors.white.withOpacity(0.3),
             ),
-            _buildWeekStat('Goal Met', '$_goalMetDays', 'days'),
+            _buildWeekStat('Avg. Sugar', '$_weeklyAvgSugar', 'g'),
           ],
         ),
       ],
@@ -615,25 +620,39 @@ class GoalsScreenState extends State<GoalsScreen> {
     );
   }
 
-  Widget _buildReportHistory() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Past Reports',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: AppTheme.textPrimary,
+  Widget _buildReportHistoryDropdown() {
+    return Theme(
+      // Remove the default ExpansionTile dividers
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: EdgeInsets.zero,
+        title: Text(
+          'Past Reports (${_reports.length})',
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: AppTheme.textSecondary,
           ),
         ),
-        const SizedBox(height: 12),
-        ..._reports.map((report) => _buildReportCard(report)),
-      ],
+        iconColor: AppTheme.textTertiary,
+        collapsedIconColor: AppTheme.textTertiary,
+        children: [
+          for (int i = 0; i < _reports.length; i++) ...[
+            if (i > 0)
+              Divider(
+                height: 1,
+                thickness: 0.5,
+                color: Colors.white.withOpacity(0.1),
+              ),
+            _buildReportRow(_reports[i]),
+          ],
+        ],
+      ),
     );
   }
 
-  Widget _buildReportCard(Map<String, dynamic> report) {
+  Widget _buildReportRow(Map<String, dynamic> report) {
     final score = (report['progressScore'] as num?)?.toInt() ?? 0;
     final evaluatedAt = report['evaluatedAt'] as String?;
     String dateStr = '';
@@ -644,55 +663,35 @@ class GoalsScreenState extends State<GoalsScreen> {
       }
     }
 
-    Color scoreColor;
-    if (score >= 8) {
-      scoreColor = AppTheme.positiveColor;
-    } else if (score >= 5) {
-      scoreColor = AppTheme.warningColor;
-    } else {
-      scoreColor = AppTheme.negativeColor;
-    }
+    final scoreColor = score >= 8
+        ? AppTheme.positiveColor
+        : (score >= 5 ? AppTheme.warningColor : AppTheme.negativeColor);
 
-    return GestureDetector(
+    return InkWell(
       onTap: () => _showReportDialog(report),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: AppTheme.cardDark,
-          borderRadius: BorderRadius.circular(12),
-        ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
         child: Row(
           children: [
-            Icon(Icons.assessment, size: 20, color: AppTheme.primaryBlue),
-            const SizedBox(width: 12),
             Expanded(
               child: Text(
                 dateStr,
                 style: const TextStyle(
-                  fontSize: 14,
-                  color: AppTheme.textPrimary,
-                ),
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: scoreColor.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: scoreColor),
-              ),
-              child: Text(
-                '$score/10',
-                style: TextStyle(
-                  color: scoreColor,
-                  fontWeight: FontWeight.bold,
                   fontSize: 13,
+                  color: AppTheme.textSecondary,
                 ),
               ),
             ),
-            const SizedBox(width: 8),
-            Icon(Icons.chevron_right, size: 20, color: AppTheme.textTertiary),
+            Text(
+              '$score/10',
+              style: TextStyle(
+                fontSize: 13,
+                color: scoreColor,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(Icons.chevron_right, size: 16, color: AppTheme.textTertiary),
           ],
         ),
       ),
