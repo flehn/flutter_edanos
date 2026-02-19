@@ -259,6 +259,16 @@ class FirestoreService {
         .update({'usageCount': FieldValue.increment(1)});
   }
 
+  /// Delete a single quick add item
+  static Future<void> deleteQuickAddItem(String itemId) async {
+    await _db
+        .collection('users')
+        .doc(_userId)
+        .collection('quickAdd')
+        .doc(itemId)
+        .delete();
+  }
+
   // ============================================
   // DAILY EVALUATIONS
   // ============================================

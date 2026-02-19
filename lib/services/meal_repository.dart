@@ -95,6 +95,11 @@ class MealRepository {
     await FirestoreService.saveQuickAddItem(item);
   }
 
+  /// Delete a quick add item
+  static Future<void> deleteQuickAddItem(String itemId) async {
+    await FirestoreService.deleteQuickAddItem(itemId);
+  }
+
   /// Add meal from quick add (increments usage, saves meal)
   static Future<Meal> addMealFromQuickAdd(QuickAddItem quickAdd) async {
     await FirestoreService.incrementQuickAddUsage(quickAdd.id);
