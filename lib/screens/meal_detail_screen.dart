@@ -37,6 +37,7 @@ class _MealDetailScreenState extends State<MealDetailScreen> {
       TextEditingController();
   bool _isAddingIngredient = false;
   bool _isSearchingIngredient = false;
+  final Set<int> _expandedIngredients = {};
 
   @override
   void initState() {
@@ -1207,6 +1208,7 @@ class _MealDetailScreenState extends State<MealDetailScreen> {
   }
 
   Widget _buildIngredientRow(int index, Ingredient ingredient) {
+    final isExpanded = _expandedIngredients.contains(index);
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 4),
       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -1218,7 +1220,7 @@ class _MealDetailScreenState extends State<MealDetailScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Row with delete button, name, and amount/kcal using Wrap for flexibility
+          // Row with delete button, name, amount/kcal and expand chevron
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1240,51 +1242,96 @@ class _MealDetailScreenState extends State<MealDetailScreen> {
                   ),
                 ),
               ),
-              // Name and amount/kcal in flexible layout
+              // Name, amount/kcal and chevron — tappable to expand macros
               Expanded(
-                child: Wrap(
-                  spacing: 16,
-                  runSpacing: 4,
-                  alignment: WrapAlignment.spaceBetween,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    // Ingredient name
-                    Text(
-                      ingredient.name,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                        color: AppTheme.textPrimary,
+                child: GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      if (isExpanded) {
+                        _expandedIngredients.remove(index);
+                      } else {
+                        _expandedIngredients.add(index);
+                      }
+                    });
+                  },
+                  behavior: HitTestBehavior.opaque,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Wrap(
+                          spacing: 16,
+                          runSpacing: 4,
+                          alignment: WrapAlignment.spaceBetween,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            // Ingredient name
+                            Text(
+                              ingredient.name,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500,
+                                color: AppTheme.textPrimary,
+                              ),
+                            ),
+                            // Amount and kcal
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  '${ingredient.amount.round()}${ingredient.unit}',
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                    color: AppTheme.textSecondary,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Text(
+                                  '${ingredient.calories.round()} kcal',
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                    color: AppTheme.textSecondary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                    // Amount and kcal
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          '${ingredient.amount.round()}${ingredient.unit}',
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                            color: AppTheme.textSecondary,
-                          ),
+                      // Chevron to indicate expandable
+                      Padding(
+                        padding: const EdgeInsets.only(left: 4),
+                        child: Icon(
+                          isExpanded
+                              ? Icons.keyboard_arrow_up
+                              : Icons.keyboard_arrow_down,
+                          color: AppTheme.textTertiary,
+                          size: 20,
                         ),
-                        const SizedBox(width: 12),
-                        Text(
-                          '${ingredient.calories.round()} kcal',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                            color: AppTheme.textSecondary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
           ),
+
+          // Expandable macro nutrition section
+          if (isExpanded) ...[
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildMacroChip('Protein', ingredient.protein, AppTheme.proteinColor),
+                _buildMacroChip('Carbs', ingredient.carbs, AppTheme.carbsColor),
+                _buildMacroChip('Fat', ingredient.fat, AppTheme.fatColor),
+                _buildMacroChip('Sugar', ingredient.sugar, AppTheme.textTertiary),
+              ],
+            ),
+            const SizedBox(height: 6),
+          ],
 
           const SizedBox(height: 8),
 
@@ -1311,6 +1358,30 @@ class _MealDetailScreenState extends State<MealDetailScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildMacroChip(String label, double value, Color color) {
+    return Column(
+      children: [
+        Text(
+          '${value.toStringAsFixed(1)}g',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: color,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+            color: AppTheme.textTertiary,
+          ),
+        ),
+      ],
     );
   }
 
