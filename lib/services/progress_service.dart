@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import '../models/meal.dart';
 import 'firestore_service.dart';
+import 'health_service.dart';
 import 'meal_repository.dart';
 import '../gemini_service.dart';
 
@@ -168,6 +169,14 @@ class ProgressService {
     // Fetch all meals in the 20-day window
     final meals = await FirestoreService.getMealsForDateRange(cycleStart, cycleEnd);
 
+    // Fetch burned calories for all 20 days in parallel
+    final burnedCaloriesList = await Future.wait(
+      List.generate(
+        20,
+        (i) => HealthService.getBurnedCaloriesForDate(cycleStart.add(Duration(days: i))),
+      ),
+    );
+
     // Build daily summaries with meal details and timing
     final dailySummaries = <Map<String, dynamic>>[];
     for (var i = 0; i < 20; i++) {
@@ -183,16 +192,21 @@ class ProgressService {
         return '$time ${m.name} ($ingredients)';
       }).join('; ');
 
+      final consumedCals = dayMeals.fold(0.0, (sum, m) => sum + m.totalCalories).round();
+      final burnedCals = burnedCaloriesList[i].round();
+
       dailySummaries.add({
         'date': _dateKey(day),
         'mealCount': dayMeals.length,
-        'calories': dayMeals.fold(0.0, (sum, m) => sum + m.totalCalories).round(),
+        'calories': consumedCals,
         'protein': dayMeals.fold(0.0, (sum, m) => sum + m.totalProtein).round(),
         'carbs': dayMeals.fold(0.0, (sum, m) => sum + m.totalCarbs).round(),
         'fat': dayMeals.fold(0.0, (sum, m) => sum + m.totalFat).round(),
         'fiber': dayMeals.fold(0.0, (sum, m) => sum + m.totalFiber).round(),
         'sugar': dayMeals.fold(0.0, (sum, m) => sum + m.totalSugar).round(),
         'mealDetails': mealDetails.isEmpty ? 'No meals' : mealDetails,
+        'burnedCalories': burnedCals,
+        'netCalories': consumedCals - burnedCals,
       });
     }
 

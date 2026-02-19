@@ -597,6 +597,16 @@ Provide a brief, direct health evaluation for this day. Only focus on the presen
           '${averageDailyNutrition['sugar']}g sugar\n'
         : '';
 
+    final dailySummaryText = dailySummaries.map((d) {
+      final burned = (d['burnedCalories'] as num?)?.toInt() ?? 0;
+      final netSuffix = burned > 0
+          ? ' | Net calories: ${d['netCalories']} kcal (burned: $burned kcal)'
+          : '';
+      return '${d['date']}: ${d['mealCount']} meals, ${d['calories']} kcal, '
+          '${d['protein']}g protein, ${d['carbs']}g carbs, ${d['fat']}g fat, '
+          '${d['fiber']}g fiber, ${d['sugar']}g sugar | Meals: ${d['mealDetails']}$netSuffix';
+    }).join('\n');
+
     final prompt = """
 Evaluate this user's 20-day nutrition progress and give detailed, evidence-based feedback.
 Use Google Search to verify the latest nutritional science recommendations for this user's profile and goal.
@@ -609,7 +619,7 @@ User Profile:
 - Active tracking days: $activeDays out of 20
 $avgSection
 Daily Meal Data (last 20 days):
-${dailySummaries.map((d) => '${d['date']}: ${d['mealCount']} meals, ${d['calories']} kcal, ${d['protein']}g protein, ${d['carbs']}g carbs, ${d['fat']}g fat, ${d['fiber']}g fiber, ${d['sugar']}g sugar | Meals: ${d['mealDetails']}').join('\n')}
+$dailySummaryText
 
 Structure your response with these exact section headers:
 
