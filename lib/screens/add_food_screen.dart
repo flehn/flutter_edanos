@@ -44,6 +44,9 @@ class AddFoodScreenState extends State<AddFoodScreen> {
   bool _isInCaptureMode = false;
   bool _multiplePictures = false;
 
+  // Quick add delete mode
+  String? _deletingItemId;
+
   // Recording timer for 1-minute limit
   Timer? _recordingTimer;
   int _recordingSeconds = 0;
@@ -109,7 +112,7 @@ class AddFoodScreenState extends State<AddFoodScreen> {
     });
   }
 
-  void _addSearchResultAsMeal() {
+  Future<void> _addSearchResultAsMeal() async {
     if (_searchResult == null) return;
 
     try {
@@ -129,14 +132,18 @@ class AddFoodScreenState extends State<AddFoodScreen> {
         return;
       }
 
-      // Navigate to food details to adjust and save
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (context) => MealDetailScreen(meal: meal, isNewMeal: true),
-        ),
-      );
-
       _clearSearch();
+
+      // Navigate to food details to adjust and save
+      if (mounted) {
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => MealDetailScreen(meal: meal, isNewMeal: true),
+          ),
+        );
+        // Reload quick add items in case user added this meal to quick add
+        _loadQuickAddItems();
+      }
     } catch (e) {
       debugPrint('Error creating meal from search result: $e');
       if (mounted) {
@@ -187,6 +194,33 @@ class AddFoodScreenState extends State<AddFoodScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to add: $e'),
+            backgroundColor: AppTheme.negativeColor,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _deleteQuickAddItem(QuickAddItem item) async {
+    setState(() => _deletingItemId = null);
+    try {
+      await MealRepository.deleteQuickAddItem(item.id);
+      setState(() {
+        _quickAddItems.removeWhere((i) => i.id == item.id);
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${item.name} removed from Quick Add'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to remove: $e'),
             backgroundColor: AppTheme.negativeColor,
           ),
         );
@@ -273,11 +307,13 @@ class AddFoodScreenState extends State<AddFoodScreen> {
 
       // Navigate to Food Details screen
       if (mounted) {
-        Navigator.of(context).push(
+        await Navigator.of(context).push(
           MaterialPageRoute(
             builder: (context) => MealDetailScreen(meal: meal, isNewMeal: true),
           ),
         );
+        // Reload quick add items in case user added this meal to quick add
+        _loadQuickAddItems();
       }
     } on NotFoodException catch (e) {
       // Handle non-food image specifically
@@ -440,6 +476,8 @@ class AddFoodScreenState extends State<AddFoodScreen> {
             builder: (context) => MealDetailScreen(meal: meal, isNewMeal: true),
           ),
         );
+        // Reload quick add items in case user added this meal to quick add
+        _loadQuickAddItems();
       }
     } on NotFoodException {
       if (mounted) {
@@ -651,11 +689,13 @@ class AddFoodScreenState extends State<AddFoodScreen> {
 
       // Navigate to details
       if (mounted) {
-        Navigator.of(context).push(
+        await Navigator.of(context).push(
           MaterialPageRoute(
             builder: (context) => MealDetailScreen(meal: meal, isNewMeal: true),
           ),
         );
+        // Reload quick add items in case user added this meal to quick add
+        _loadQuickAddItems();
       }
     } on NotFoodException catch (e) {
       if (mounted) {
@@ -1361,61 +1401,106 @@ class AddFoodScreenState extends State<AddFoodScreen> {
   }
 
   Widget _buildQuickAddItemFromData(QuickAddItem item) {
+    final isDeleting = _deletingItemId == item.id;
+
     return GestureDetector(
-      onTap: () => _addFromQuickAdd(item),
-      child: Container(
-        width: 100,
-        margin: const EdgeInsets.only(right: 12),
-        decoration: BoxDecoration(
-          color: AppTheme.cardDark,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppTheme.accentOrange.withOpacity(0.3)),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: AppTheme.accentOrange.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(24),
+      onTap: () {
+        if (_deletingItemId != null) {
+          // Cancel delete mode on any tap
+          setState(() => _deletingItemId = null);
+        } else {
+          _addFromQuickAdd(item);
+        }
+      },
+      onLongPress: () {
+        setState(() => _deletingItemId = item.id);
+      },
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Container(
+            width: 100,
+            margin: const EdgeInsets.only(right: 12),
+            decoration: BoxDecoration(
+              color: isDeleting
+                  ? AppTheme.negativeColor.withOpacity(0.08)
+                  : AppTheme.cardDark,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isDeleting
+                    ? AppTheme.negativeColor.withOpacity(0.6)
+                    : AppTheme.accentOrange.withOpacity(0.3),
               ),
-              child: item.imageUrl != null
-                  ? ClipRRect(
-                      borderRadius: BorderRadius.circular(24),
-                      child: Image.network(
-                        item.imageUrl!,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => const Icon(
-                          Icons.restaurant,
-                          color: AppTheme.accentOrange,
-                        ),
-                      ),
-                    )
-                  : const Icon(Icons.restaurant, color: AppTheme.accentOrange),
             ),
-            const SizedBox(height: 8),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Text(
-                item.name,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: AppTheme.textPrimary,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: AppTheme.accentOrange.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: item.imageUrl != null
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(24),
+                          child: Image.network(
+                            item.imageUrl!,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => const Icon(
+                              Icons.restaurant,
+                              color: AppTheme.accentOrange,
+                            ),
+                          ),
+                        )
+                      : const Icon(Icons.restaurant, color: AppTheme.accentOrange),
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Text(
+                    item.name,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: AppTheme.textPrimary,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+                Text(
+                  '${item.calories.round()} kcal',
+                  style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+                ),
+              ],
+            ),
+          ),
+          // Delete icon shown on long press
+          if (isDeleting)
+            Positioned(
+              top: -8,
+              right: 4,
+              child: GestureDetector(
+                onTap: () => _deleteQuickAddItem(item),
+                child: Container(
+                  width: 28,
+                  height: 28,
+                  decoration: const BoxDecoration(
+                    color: AppTheme.negativeColor,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.delete,
+                    color: Colors.white,
+                    size: 16,
+                  ),
+                ),
               ),
             ),
-            Text(
-              '${item.calories.round()} kcal',
-              style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
-            ),
-          ],
-        ),
+        ],
       ),
     );
   }
