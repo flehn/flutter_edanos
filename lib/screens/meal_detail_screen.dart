@@ -1327,7 +1327,7 @@ class _MealDetailScreenState extends State<MealDetailScreen> {
                 _buildMacroChip('Protein', ingredient.protein, AppTheme.proteinColor),
                 _buildMacroChip('Carbs', ingredient.carbs, AppTheme.carbsColor),
                 _buildMacroChip('Fat', ingredient.fat, AppTheme.fatColor),
-                _buildMacroChip('Sugar', ingredient.sugar, AppTheme.sugarColor),
+                _buildMacroChip('Sugar', ingredient.sugar, AppTheme.textTertiary),
               ],
             ),
             const SizedBox(height: 6),
